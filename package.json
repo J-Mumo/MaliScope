@@ -20,6 +20,7 @@
     "job:sample": "tsx src/jobs/run-sample.ts"
   },
   "dependencies": {
+    "cheerio": "^1.2.0",
     "decimal.js": "^10.6.0",
     "drizzle-orm": "^0.44.5",
     "next": "^15.4.6",

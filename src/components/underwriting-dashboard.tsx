@@ -11,6 +11,12 @@ import {
   type PropertyListing,
   type TrackedInput,
 } from "@/domain";
+import type { SaleListingImportDraft } from "@/sources/import-types";
+import {
+  findSourceByUrl,
+  sourceRegistry,
+  type SourceRegistryEntry,
+} from "@/sources/registry";
 import { ScenarioCard } from "./scenario-card";
 import { TrackedField } from "./tracked-field";
 
@@ -40,7 +46,24 @@ function blankListing(): PropertyListing {
       monthlyRentKsh: missingMoney(),
     },
   ];
-  listing.operatingCosts.annualFixedKsh = missingMoney();
+  listing.operatingCosts = {
+    annualFixedKsh: missingMoney(),
+    variablePercentOfEgi: { value: null, status: "missing" },
+  };
+  listing.acquisitionCosts = {
+    percentOfPrice: { value: null, status: "missing" },
+    fixedKsh: missingMoney(),
+    financingPercentOfDebt: { value: null, status: "missing" },
+    financingFixedKsh: missingMoney(),
+    initialReservesKsh: missingMoney(),
+  };
+  listing.loanTerms = {
+    maximumLtv: { value: null, status: "missing" },
+    annualInterestRate: { value: null, status: "missing" },
+    amortizationYears: { value: null, status: "missing" },
+  };
+  listing.assumptions.baseOccupancy = { value: null, status: "missing" };
+  listing.assumptions.collectionLoss = { value: null, status: "missing" };
   listing.assumptions.otherIncomeAnnualKsh = missingMoney();
   for (const key of Object.keys(listing.dueDiligence) as DueDiligenceKey[]) {
     listing.dueDiligence[key] = { value: null, status: "missing" };
@@ -70,6 +93,7 @@ export function UnderwritingDashboard() {
   const [listing, setListing] = useState<PropertyListing>(() =>
     structuredClone(seededListing),
   );
+  const [sourceUrl, setSourceUrl] = useState("");
   const [importText, setImportText] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -103,6 +127,115 @@ export function UnderwritingDashboard() {
       setNotice("Listing imported and analyzed locally.");
     } catch {
       setNotice("Import rejected: enter valid MaliScope listing JSON.");
+    }
+  };
+
+  const applySourceDraft = (
+    draft: SaleListingImportDraft,
+    source: SourceRegistryEntry,
+  ) => {
+    if (!draft.county.value) {
+      throw new Error(
+        "The county could not be identified. Create a manual listing so it can be selected explicitly.",
+      );
+    }
+    if (draft.county.status !== "reported") {
+      throw new Error(
+        `The parser inferred ${draft.county.value} County. Create a manual listing to confirm the county explicitly before analysis.`,
+      );
+    }
+    const imported = blankListing();
+    imported.id = `${draft.sourceId}-${draft.externalId ?? Date.now()}`;
+    imported.title = draft.title.value ?? "Imported sale listing";
+    imported.address = draft.address.value ?? "";
+    imported.county = draft.county.value;
+    imported.submarket = draft.submarket.value ?? "";
+    imported.askingPriceKsh = draft.askingPriceKsh.value
+      ? {
+          value: draft.askingPriceKsh.value,
+          status: "reported",
+          note: draft.askingPriceKsh.evidence,
+          sourceReference: draft.sourceUrl,
+        }
+      : { value: null, status: "missing" };
+    imported.unitMix =
+      draft.unitHints.length > 0
+        ? draft.unitHints.map((hint, index) => ({
+            id: `imported-unit-${index + 1}`,
+            label: hint.label,
+            count: {
+              value: hint.count.value,
+              status: hint.count.status,
+              note: hint.count.evidence,
+              sourceReference: draft.sourceUrl,
+            },
+            monthlyRentKsh: { value: null, status: "missing" },
+          }))
+        : [
+            {
+              id: "imported-unit-unknown",
+              label: "Unit mix not reported",
+              count: { value: null, status: "missing" },
+              monthlyRentKsh: { value: null, status: "missing" },
+            },
+          ];
+    imported.provenance = {
+      adapter: draft.sourceId,
+      externalId: draft.externalId,
+      sourceUrl: draft.sourceUrl,
+      capturedAt: draft.capturedAt,
+      permissionBasis: source.permissionBasis!,
+      rawReference: `sha256:${draft.extractedRecordSha256}`,
+    };
+    imported.createdAt = draft.capturedAt;
+    imported.updatedAt = draft.capturedAt;
+    setListing(imported);
+  };
+
+  const importFromWebsite = async () => {
+    setNotice(null);
+    let source: SourceRegistryEntry | null;
+    try {
+      source = findSourceByUrl(sourceUrl);
+    } catch (error: unknown) {
+      setNotice(error instanceof Error ? error.message : "Invalid source URL");
+      return;
+    }
+    if (!source) {
+      setNotice(
+        "This website is not registered. Use manual or typed JSON import instead.",
+      );
+      return;
+    }
+    if (source.accessStatus !== "approved" || !source.liveFetchEnabled) {
+      setNotice(
+        `${source.displayName}: ${source.accessStatus.replaceAll("_", " ")}. Live access remains disabled until written permission is recorded.`,
+      );
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const response = await fetch("/api/import-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: sourceUrl }),
+      });
+      const body = (await response.json()) as
+        SaleListingImportDraft | { error: string };
+      if (!response.ok || "error" in body) {
+        throw new Error("error" in body ? body.error : "Website import failed");
+      }
+      applySourceDraft(body, source);
+      setNotice(
+        `Imported from ${source.displayName}. Review every extracted fact and complete the missing underwriting fields.`,
+      );
+    } catch (error: unknown) {
+      setNotice(
+        error instanceof Error ? error.message : "Website import failed",
+      );
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -551,6 +684,47 @@ export function UnderwritingDashboard() {
               )}
             </div>
           </fieldset>
+
+          <details className="import-box" open>
+            <summary>Import from a listing website</summary>
+            <p className="import-explainer">
+              Connectors and parsers are ready for testing, but live access
+              stays off until the source permission record is approved.
+            </p>
+            <div className="source-grid">
+              {sourceRegistry.map((source) => (
+                <a
+                  href={source.saleUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  key={source.id}
+                >
+                  <strong>{source.displayName}</strong>
+                  <span
+                    className={`source-state source-${source.accessStatus}`}
+                  >
+                    {source.accessStatus.replaceAll("_", " ")}
+                  </span>
+                </a>
+              ))}
+            </div>
+            <div className="url-import-row">
+              <input
+                type="url"
+                value={sourceUrl}
+                onChange={(event) => setSourceUrl(event.target.value)}
+                placeholder="https://approved-source.example/property/..."
+                aria-label="Property listing URL"
+              />
+              <button
+                className="button button-primary"
+                onClick={importFromWebsite}
+                disabled={saving || !sourceUrl}
+              >
+                Import URL
+              </button>
+            </div>
+          </details>
 
           <details className="import-box">
             <summary>Import typed listing JSON</summary>

@@ -8,6 +8,29 @@ scenarios, a maximum allowable offer (MAO), and a recommendation dashboard.
 No live property portal is scraped or integrated. The bundled source is
 synthetic, and every future adapter must carry a documented permission basis.
 
+### Dormant website connectors
+
+MaliScope includes fixture-tested parsers and a URL-import workflow for Equity
+Assets, HF Marketplace, Jiji Kenya, Kenya Property Centre, PropertyPro Kenya,
+BuyRentKenya, HassConsult, and Knight Frank Kenya. These are **not active data
+sources**. The registry in `src/sources/registry.ts` keeps each source
+`pending_permission`, `manual_only`, or `blocked`, with live network access
+disabled.
+
+Activation requires all of the following in the registry:
+
+1. `accessStatus: "approved"`;
+2. a written `permissionBasis` and `agreementRef`;
+3. approval date and named reviewer;
+4. an agreed identifying user agent; and
+5. `liveFetchEnabled: true`.
+
+Both the URL-import HTTP boundary and scheduled adapter permission check enforce
+that metadata before making a request. Tests use representative local HTML
+fixtures and never contact a listing website. Parsed claims remain reported,
+location inference is estimated, unknown facts stay missing, and only a hash of
+the normalized extracted record is retained as the raw audit reference.
+
 ## Architecture
 
 This repository is a single deployable full-stack TypeScript application:

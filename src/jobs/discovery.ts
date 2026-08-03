@@ -1,9 +1,7 @@
 import { analyzeListing, propertyListingSchema } from "@/domain";
 import type { ListingRepository } from "@/db/repository";
-import {
-  assertAdapterPermitted,
-  type ListingSourceAdapter,
-} from "@/sources/types";
+import { assertAdapterPermitted } from "@/sources/permissions";
+import type { ListingSourceAdapter } from "@/sources/types";
 
 export interface DiscoveryJobResult {
   adapterId: string;

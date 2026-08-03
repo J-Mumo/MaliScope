@@ -444,6 +444,70 @@ fieldset .form-grid {
   font-weight: 800;
 }
 
+.import-explainer {
+  margin: 12px 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.source-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 14px 0;
+}
+
+.source-grid a {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  font-size: 11px;
+  text-decoration: none;
+}
+
+.source-state {
+  padding: 4px 6px;
+  border-radius: 99px;
+  background: #eeeae0;
+  color: var(--muted);
+  font-size: 8px;
+  font-weight: 850;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.source-pending_permission {
+  background: #fff0d5;
+  color: #7e531d;
+}
+
+.source-manual_only {
+  background: #e7ece9;
+  color: #45514b;
+}
+
+.source-blocked {
+  background: #f2dfdc;
+  color: #7e342a;
+}
+
+.source-approved {
+  background: #e3f4e9;
+  color: var(--green);
+}
+
+.url-import-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
 .import-box textarea {
   margin: 15px 0 10px;
   resize: vertical;
@@ -713,6 +777,11 @@ footer {
   .form-grid,
   .unit-row,
   .diligence-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .source-grid,
+  .url-import-row {
     grid-template-columns: 1fr;
   }
 

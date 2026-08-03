@@ -72,7 +72,79 @@ describe("safe discovery and scheduled re-analysis", () => {
   it("refuses an adapter without a documented permission basis", async () => {
     const adapter: ListingSourceAdapter = {
       id: "unapproved-portal",
+      accessKind: "website",
+      websiteSourceId: "buyrentkenya",
       permissionBasis: "",
+      async *discover() {
+        yield seededListing;
+      },
+    };
+
+    await expect(
+      runDiscoveryJob(adapter, new MemoryRepository()),
+    ).rejects.toThrow("no documented permission basis");
+  });
+
+  it("refuses a website adapter with an unapproved registry entry", async () => {
+    const repository = new MemoryRepository();
+    let discoveryStarted = false;
+    const adapter: ListingSourceAdapter = {
+      id: "premature-buyrentkenya",
+      accessKind: "website",
+      websiteSourceId: "buyrentkenya",
+      permissionBasis: "Unreviewed placeholder",
+      async *discover() {
+        discoveryStarted = true;
+        yield seededListing;
+      },
+    };
+
+    await expect(runDiscoveryJob(adapter, repository)).rejects.toThrow(
+      "no documented permission basis",
+    );
+    expect(discoveryStarted).toBe(false);
+    expect(repository.listings.size).toBe(0);
+  });
+
+  it("does not permit arbitrary adapters to self-classify as offline", async () => {
+    let discoveryStarted = false;
+    const adapter: ListingSourceAdapter = {
+      id: "unregistered-offline-adapter",
+      accessKind: "offline",
+      permissionBasis: "Self-declared permission",
+      async *discover() {
+        discoveryStarted = true;
+        yield seededListing;
+      },
+    };
+
+    await expect(
+      runDiscoveryJob(adapter, new MemoryRepository()),
+    ).rejects.toThrow("no documented permission basis");
+    expect(discoveryStarted).toBe(false);
+  });
+
+  it("does not trust copied IDs and permission strings", async () => {
+    const adapter: ListingSourceAdapter = {
+      id: "manual",
+      accessKind: "offline",
+      permissionBasis: "User-supplied listing facts",
+      async *discover() {
+        yield seededListing;
+      },
+    };
+
+    await expect(
+      runDiscoveryJob(adapter, new MemoryRepository()),
+    ).rejects.toThrow("no documented permission basis");
+  });
+
+  it("does not trust a spoofed constructor property", async () => {
+    const adapter = {
+      id: "sample",
+      accessKind: "offline" as const,
+      permissionBasis: "Bundled synthetic fixture; no third-party portal data",
+      constructor: SampleListingAdapter,
       async *discover() {
         yield seededListing;
       },
