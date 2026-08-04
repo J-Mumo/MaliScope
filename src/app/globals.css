@@ -823,12 +823,19 @@ footer {
 
 .discovery-filters {
   display: grid;
-  grid-template-columns: 1.05fr 0.75fr 0.75fr 1fr 1.35fr;
+  grid-template-columns: repeat(auto-fit, minmax(165px, 1fr));
   gap: 12px;
   padding: 18px;
   border: 1px solid var(--line);
   border-radius: 14px;
   background: rgba(255, 253, 247, 0.75);
+}
+
+.filter-validation {
+  margin: 8px 4px 0;
+  color: var(--danger);
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .listing-grid {

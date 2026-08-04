@@ -7,6 +7,7 @@ import {
   discoveryStatuses,
   type DiscoveryRecord,
 } from "@/sources/discovery-types";
+import { filterDiscoveryRecords } from "@/sources/discovery-filter";
 import { discoveryDataCompleteness } from "@/sources/discovery-sort";
 import {
   discoveryPreScreenStatuses,
@@ -87,6 +88,14 @@ function freshness(lastSeenAt: string): {
   };
 }
 
+function priceBound(value: string): { invalid: boolean; value: number | null } {
+  if (!value.trim()) return { invalid: false, value: null };
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0
+    ? { invalid: false, value: parsed }
+    : { invalid: true, value: null };
+}
+
 export function DiscoveryDashboard() {
   const [records, setRecords] = useState<DiscoveryRecord[]>([]);
   const [sources, setSources] = useState<PublicSource[]>([]);
@@ -94,6 +103,9 @@ export function DiscoveryDashboard() {
   const [county, setCounty] = useState("");
   const [status, setStatus] = useState("");
   const [screenStatus, setScreenStatus] = useState("");
+  const [propertyType, setPropertyType] = useState("");
+  const [minimumPriceKsh, setMinimumPriceKsh] = useState("");
+  const [maximumPriceKsh, setMaximumPriceKsh] = useState("");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
@@ -230,13 +242,43 @@ export function DiscoveryDashboard() {
     window.location.assign(`/?listing=${encodeURIComponent(listingId)}`);
   };
 
-  const visibleRecords = useMemo(
+  const propertyTypes = useMemo(
     () =>
-      screenStatus
-        ? records.filter((record) => record.preScreen?.status === screenStatus)
-        : records,
-    [records, screenStatus],
+      [
+        ...new Set(
+          records
+            .map((record) => record.draft.propertyType.value)
+            .filter((value): value is string => Boolean(value)),
+        ),
+      ].sort((left, right) => left.localeCompare(right)),
+    [records],
   );
+  const minimumPrice = priceBound(minimumPriceKsh);
+  const maximumPrice = priceBound(maximumPriceKsh);
+  const invalidPriceRange =
+    minimumPrice.invalid ||
+    maximumPrice.invalid ||
+    (minimumPrice.value !== null &&
+      maximumPrice.value !== null &&
+      minimumPrice.value > maximumPrice.value);
+  const visibleRecords = useMemo(() => {
+    if (invalidPriceRange) return [];
+    const screenedRecords = screenStatus
+      ? records.filter((record) => record.preScreen?.status === screenStatus)
+      : records;
+    return filterDiscoveryRecords(screenedRecords, {
+      propertyType,
+      minimumPriceKsh: minimumPrice.value,
+      maximumPriceKsh: maximumPrice.value,
+    });
+  }, [
+    invalidPriceRange,
+    maximumPrice.value,
+    minimumPrice.value,
+    propertyType,
+    records,
+    screenStatus,
+  ]);
 
   const metrics = useMemo(
     () => ({
@@ -382,6 +424,44 @@ export function DiscoveryDashboard() {
             </select>
           </label>
           <label>
+            <span className="field-label">Property type</span>
+            <select
+              value={propertyType}
+              onChange={(event) => setPropertyType(event.target.value)}
+            >
+              <option value="">All property types</option>
+              {propertyTypes.map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span className="field-label">Minimum price (KES)</span>
+            <input
+              type="number"
+              min="0"
+              step="100000"
+              inputMode="numeric"
+              value={minimumPriceKsh}
+              onChange={(event) => setMinimumPriceKsh(event.target.value)}
+              placeholder="No minimum"
+            />
+          </label>
+          <label>
+            <span className="field-label">Maximum price (KES)</span>
+            <input
+              type="number"
+              min="0"
+              step="100000"
+              inputMode="numeric"
+              value={maximumPriceKsh}
+              onChange={(event) => setMaximumPriceKsh(event.target.value)}
+              placeholder="No maximum"
+            />
+          </label>
+          <label>
             <span className="field-label">Search</span>
             <input
               value={search}
@@ -390,6 +470,12 @@ export function DiscoveryDashboard() {
             />
           </label>
         </div>
+        {invalidPriceRange ? (
+          <p className="filter-validation">
+            Enter non-negative prices with the minimum no greater than the
+            maximum.
+          </p>
+        ) : null}
 
         {loading ? (
           <div className="empty-state">Loading discovered listings...</div>

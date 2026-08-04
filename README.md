@@ -105,11 +105,13 @@ and its current analysis; without `DATABASE_URL`, the API returns an explicit
 configuration error and local analysis still works.
 
 Open `http://localhost:3000/discovery` to browse persisted source drafts, filter
-by source, county, status, or text, run one approved source during local
-development, inspect freshness and missing facts, and promote a reviewed draft
-into underwriting. An inferred or missing county must be explicitly confirmed
-before promotion. Unknown rents, expenses, financing, and due-diligence facts
-remain missing, so promoted records normally begin as `NEEDS_DATA`.
+by source, county, status, viability, normalized property type, asking-price
+range, or text, run one approved source during local development, inspect
+freshness and missing facts, and promote a reviewed draft into underwriting.
+Listings with unknown prices remain visible unless a price bound is active. An
+inferred or missing county must be explicitly confirmed before promotion.
+Unknown rents, expenses, financing, and due-diligence facts remain missing, so
+promoted records normally begin as `NEEDS_DATA`.
 
 Each discovery card includes a **provisional policy pre-screen** before
 promotion. When the source explicitly reports asking price, total units, county,
