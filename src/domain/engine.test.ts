@@ -3,6 +3,7 @@ import {
   analyzeListing,
   monthlyAmortizingPayment,
   propertyListingSchema,
+  screenCompleteListingPolicy,
   seededListing,
   type PropertyListing,
 } from ".";
@@ -26,6 +27,20 @@ describe("monthlyAmortizingPayment", () => {
 });
 
 describe("analyzeListing formulas", () => {
+  it("keeps the lightweight policy screen aligned with full underwriting", () => {
+    for (const price of ["50000000", "92000000", "500000000"]) {
+      const listing = cloneListing();
+      listing.askingPriceKsh.value = price;
+      const full = analyzeListing(listing);
+      const screen = screenCompleteListingPolicy(listing);
+
+      expect(screen.recommendation).toBe(full.recommendation);
+      expect(screen.maximumAllowableOfferKsh).toBe(
+        full.maximumAllowableOfferKsh,
+      );
+    }
+  });
+
   it("calculates income, expenses, NOI, debt service, and returns deterministically", () => {
     const result = analyzeListing(cloneListing(), "2026-01-01T00:00:00.000Z");
     const base = result.scenarios[0]!;

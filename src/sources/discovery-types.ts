@@ -1,4 +1,5 @@
 import type { SaleListingImportDraft } from "./import-types";
+import type { DiscoveryPreScreen } from "./pre-screen";
 import type { WebsiteSourceId } from "./registry";
 
 export const discoveryStatuses = [
@@ -30,4 +31,5 @@ export interface DiscoveryRecord {
   firstSeenAt: string;
   lastSeenAt: string;
   reviewedAt: string | null;
+  preScreen?: DiscoveryPreScreen;
 }

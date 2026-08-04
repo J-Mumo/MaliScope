@@ -7,6 +7,10 @@ import {
   discoveryStatuses,
   type DiscoveryRecord,
 } from "@/sources/discovery-types";
+import {
+  discoveryPreScreenStatuses,
+  type DiscoveryPreScreen,
+} from "@/sources/pre-screen";
 import type { WebsiteSourceId } from "@/sources/registry";
 
 interface PublicSource {
@@ -44,6 +48,16 @@ const kes = new Intl.NumberFormat("en-KE", {
   maximumFractionDigits: 0,
 });
 
+const unavailableScreen: DiscoveryPreScreen = {
+  status: "NEEDS_DATA",
+  label: "NEEDS DATA",
+  reason: "The provisional viability screen is unavailable.",
+  reportedMonthlyGrossRentKsh: null,
+  requiredMonthlyGrossRentKsh: null,
+  maximumAllowableOfferKsh: null,
+  assumptionsLabel: "Open underwriting to enter and verify missing facts.",
+};
+
 function missingFactCount(record: DiscoveryRecord): number {
   const draft = record.draft;
   return (
@@ -78,6 +92,7 @@ export function DiscoveryDashboard() {
   const [sourceId, setSourceId] = useState("");
   const [county, setCounty] = useState("");
   const [status, setStatus] = useState("");
+  const [screenStatus, setScreenStatus] = useState("");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
@@ -180,15 +195,30 @@ export function DiscoveryDashboard() {
     window.location.assign(`/?listing=${encodeURIComponent(listingId)}`);
   };
 
+  const visibleRecords = useMemo(
+    () =>
+      screenStatus
+        ? records.filter((record) => record.preScreen?.status === screenStatus)
+        : records,
+    [records, screenStatus],
+  );
+
   const metrics = useMemo(
     () => ({
-      total: records.length,
-      newCount: records.filter((record) => record.status === "new").length,
-      completePrice: records.filter((record) => record.askingPriceKsh).length,
-      stale: records.filter((record) => freshness(record.lastSeenAt).stale)
-        .length,
+      total: visibleRecords.length,
+      viable: visibleRecords.filter(
+        (record) => record.preScreen?.status === "VIABLE",
+      ).length,
+      negotiate: visibleRecords.filter(
+        (record) =>
+          record.preScreen?.status === "NEGOTIATE" ||
+          record.preScreen?.status === "NOT_VIABLE",
+      ).length,
+      needsData: visibleRecords.filter(
+        (record) => record.preScreen?.status === "NEEDS_DATA",
+      ).length,
     }),
-    [records],
+    [visibleRecords],
   );
 
   return (
@@ -238,16 +268,16 @@ export function DiscoveryDashboard() {
             <strong>{metrics.total}</strong>
           </div>
           <div>
-            <span>New</span>
-            <strong>{metrics.newCount}</strong>
+            <span>Provisionally viable</span>
+            <strong>{metrics.viable}</strong>
           </div>
           <div>
-            <span>With asking price</span>
-            <strong>{metrics.completePrice}</strong>
+            <span>Negotiate / not viable</span>
+            <strong>{metrics.negotiate}</strong>
           </div>
           <div>
-            <span>Stale over 14 days</span>
-            <strong>{metrics.stale}</strong>
+            <span>Needs data</span>
+            <strong>{metrics.needsData}</strong>
           </div>
         </div>
 
@@ -299,6 +329,20 @@ export function DiscoveryDashboard() {
             </select>
           </label>
           <label>
+            <span className="field-label">Viability pre-screen</span>
+            <select
+              value={screenStatus}
+              onChange={(event) => setScreenStatus(event.target.value)}
+            >
+              <option value="">All screen results</option>
+              {discoveryPreScreenStatuses.map((value) => (
+                <option key={value} value={value}>
+                  {value.replaceAll("_", " ")}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
             <span className="field-label">Search</span>
             <input
               value={search}
@@ -310,7 +354,7 @@ export function DiscoveryDashboard() {
 
         {loading ? (
           <div className="empty-state">Loading discovered listings...</div>
-        ) : records.length === 0 ? (
+        ) : visibleRecords.length === 0 ? (
           <div className="empty-state">
             <strong>No listings match these filters.</strong>
             <span>
@@ -320,12 +364,13 @@ export function DiscoveryDashboard() {
           </div>
         ) : (
           <div className="listing-grid">
-            {records.map((record) => {
+            {visibleRecords.map((record) => {
               const seen = freshness(record.lastSeenAt);
               const source = sources.find(
                 (item) => item.id === record.sourceId,
               );
               const missing = missingFactCount(record);
+              const screening = record.preScreen ?? unavailableScreen;
               const needsCountyConfirmation =
                 record.draft.county.status !== "reported";
               const isReviewed = record.status === "reviewed";
@@ -357,6 +402,51 @@ export function DiscoveryDashboard() {
                       ? kes.format(Number(record.askingPriceKsh))
                       : "Price not reported"}
                   </strong>
+                  <div
+                    className={`pre-screen pre-screen-${screening.status.toLowerCase().replace("_", "-")}`}
+                  >
+                    <div>
+                      <span>Policy pre-screen</span>
+                      <strong>{screening.label}</strong>
+                    </div>
+                    <p>{screening.reason}</p>
+                    {screening.reportedMonthlyGrossRentKsh ? (
+                      <span>
+                        Reported gross rent:{" "}
+                        <b>
+                          {kes.format(
+                            Number(screening.reportedMonthlyGrossRentKsh),
+                          )}
+                          /month
+                        </b>
+                      </span>
+                    ) : null}
+                    {screening.requiredMonthlyGrossRentKsh ? (
+                      <span>
+                        Minimum gross rent to pass:{" "}
+                        <b>
+                          {kes.format(
+                            Number(screening.requiredMonthlyGrossRentKsh),
+                          )}
+                          /month
+                        </b>
+                      </span>
+                    ) : null}
+                    {screening.maximumAllowableOfferKsh ? (
+                      <span>
+                        Provisional MAO:{" "}
+                        <b>
+                          {kes.format(
+                            Number(screening.maximumAllowableOfferKsh),
+                          )}
+                        </b>
+                      </span>
+                    ) : null}
+                    <small title={screening.assumptionsLabel}>
+                      Provisional assumptions — verify before relying on this
+                      result.
+                    </small>
+                  </div>
                   <div className="listing-facts">
                     <span>{record.draft.unitHints.length} unit hints</span>
                     <span>{missing} discovery fields missing</span>

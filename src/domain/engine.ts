@@ -557,6 +557,74 @@ function maximumAllowableOffer(
   );
 }
 
+interface CorePolicyDecision {
+  inputs: ResolvedInputs;
+  scenarios: ScenarioDefinition[];
+  economics: { scenario: ScenarioDefinition; economics: Economics }[];
+  baseEconomics: Economics;
+  stressEconomics: Economics;
+  stressPropertyFeasible: boolean;
+  capacityWithoutLtv: Decimal;
+  mao: Decimal;
+}
+
+function corePolicyDecision(listing: PropertyListing): CorePolicyDecision {
+  const inputs = resolve(listing);
+  const scenarios = buildScenarios(
+    inputs.baseOccupancy.toString(),
+    inputs.stressOccupancy.toString(),
+  );
+  const economics = scenarios.map((scenario) => ({
+    scenario,
+    economics: scenarioEconomics(listing, inputs, scenario),
+  }));
+  const baseEconomics = economics.find(
+    ({ scenario }) => scenario.id === "base",
+  )!.economics;
+  const stressEconomics = economics.find(
+    ({ scenario }) => scenario.qualificationScenario,
+  )!.economics;
+  const requiredStressAnnualCash = inputs.minimumStressMonthlyCashFlow.mul(12);
+  const stressPropertyFeasible = stressEconomics.noi.gt(
+    requiredStressAnnualCash,
+  );
+  const capacityWithoutLtv = debtCapacityAtPrice(
+    new Decimal("1e30"),
+    inputs,
+    baseEconomics.noi,
+    stressEconomics.noi,
+  ).debt;
+  const mao = stressPropertyFeasible
+    ? maximumAllowableOffer(inputs, baseEconomics.noi, capacityWithoutLtv)
+    : ZERO;
+  return {
+    inputs,
+    scenarios,
+    economics,
+    baseEconomics,
+    stressEconomics,
+    stressPropertyFeasible,
+    capacityWithoutLtv,
+    mao,
+  };
+}
+
+export function screenCompleteListingPolicy(listing: PropertyListing): {
+  recommendation: Exclude<AnalysisResult["recommendation"], "NEEDS_DATA">;
+  maximumAllowableOfferKsh: string;
+} {
+  const { inputs, baseEconomics, mao } = corePolicyDecision(listing);
+  return {
+    recommendation:
+      mao.lte(0) || baseEconomics.noi.lte(0)
+        ? "REJECT"
+        : inputs.price.lte(mao)
+          ? "BUY"
+          : "NEGOTIATE_TO_KSH_X_OR_BELOW",
+    maximumAllowableOfferKsh: money(mao),
+  };
+}
+
 function dueDiligenceFields(listing: PropertyListing): string[] {
   const labels: Record<keyof PropertyListing["dueDiligence"], string> = {
     title: "Title search and ownership",
@@ -638,34 +706,14 @@ export function analyzeListing(
     };
   }
 
-  const inputs = resolve(listing);
-  const scenarios = buildScenarios(
-    inputs.baseOccupancy.toString(),
-    inputs.stressOccupancy.toString(),
-  );
-  const economics = scenarios.map((scenario) => ({
-    scenario,
-    economics: scenarioEconomics(listing, inputs, scenario),
-  }));
-  const baseEconomics = economics.find(
-    ({ scenario }) => scenario.id === "base",
-  )!.economics;
-  const stressEconomics = economics.find(
-    ({ scenario }) => scenario.qualificationScenario,
-  )!.economics;
-  const requiredStressAnnualCash = inputs.minimumStressMonthlyCashFlow.mul(12);
-  const stressPropertyFeasible = stressEconomics.noi.gt(
-    requiredStressAnnualCash,
-  );
-  const capacityWithoutLtv = debtCapacityAtPrice(
-    new Decimal("1e30"),
+  const {
     inputs,
-    baseEconomics.noi,
-    stressEconomics.noi,
-  ).debt;
-  const mao = stressPropertyFeasible
-    ? maximumAllowableOffer(inputs, baseEconomics.noi, capacityWithoutLtv)
-    : ZERO;
+    economics,
+    baseEconomics,
+    stressEconomics,
+    stressPropertyFeasible,
+    mao,
+  } = corePolicyDecision(listing);
   const { debt, capacity } = debtCapacityAtPrice(
     inputs.price,
     inputs,

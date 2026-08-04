@@ -1,4 +1,8 @@
-export { analyzeListing, monthlyAmortizingPayment } from "./engine";
+export {
+  analyzeListing,
+  monthlyAmortizingPayment,
+  screenCompleteListingPolicy,
+} from "./engine";
 export { countyProfiles, buildScenarios } from "./profiles";
 export { propertyListingSchema, listingImportSchema } from "./schemas";
 export { seededListing } from "./sample";

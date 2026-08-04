@@ -823,7 +823,7 @@ footer {
 
 .discovery-filters {
   display: grid;
-  grid-template-columns: 1.1fr 0.8fr 0.8fr 1.5fr;
+  grid-template-columns: 1.05fr 0.75fr 0.75fr 1fr 1.35fr;
   gap: 12px;
   padding: 18px;
   border: 1px solid var(--line);
@@ -889,6 +889,68 @@ footer {
   margin: 0;
   color: var(--muted);
   font-size: 12px;
+}
+
+.pre-screen {
+  display: grid;
+  gap: 7px;
+  margin-top: 15px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #f7f8f5;
+  font-size: 11px;
+}
+
+.pre-screen > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.pre-screen > div span,
+.pre-screen small {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.pre-screen > div strong {
+  font-size: 10px;
+  letter-spacing: 0.03em;
+}
+
+.pre-screen p,
+.pre-screen > span {
+  margin: 0;
+  line-height: 1.4;
+}
+
+.pre-screen-viable {
+  border-color: #9bc7a8;
+  background: #edf8f0;
+  color: #1e6437;
+}
+
+.pre-screen-negotiate {
+  border-color: #e4c37f;
+  background: #fff7e6;
+  color: #77541e;
+}
+
+.pre-screen-not-viable {
+  border-color: #d8aaa3;
+  background: #fff0ee;
+  color: #8b342c;
+}
+
+.pre-screen-needs-data {
+  border-color: #c9c5b8;
+  background: #f7f6f1;
+  color: #5f5b50;
 }
 
 .listing-price {

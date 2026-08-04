@@ -93,6 +93,17 @@ into underwriting. An inferred or missing county must be explicitly confirmed
 before promotion. Unknown rents, expenses, financing, and due-diligence facts
 remain missing, so promoted records normally begin as `NEEDS_DATA`.
 
+Each discovery card includes a **provisional policy pre-screen** before
+promotion. When the source explicitly reports asking price, total units, county,
+and gross rental income, it returns `PROVISIONALLY VIABLE`, `NEGOTIATE`, or
+`NOT VIABLE` using the same DSCR, stressed-cash-flow, cash-on-cash, and MAO
+engine as full underwriting. When rent is absent, it returns `NEEDS DATA` and,
+where price/county/unit count permit, shows the minimum verified gross monthly
+rent needed to pass. The screen visibly uses provisional county costs, 70% LTV,
+14.5% interest, 15-year amortization, three months of gross-rent reserves, 1.30
+DSCR, 13% cash-on-cash, and 85% stress occupancy; it never presents those
+estimates as source-reported facts.
+
 Run the safe sample discovery job:
 
 ```powershell
