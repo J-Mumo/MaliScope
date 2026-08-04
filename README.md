@@ -121,9 +121,10 @@ npm run job:discover
 ```
 
 This command requires `DATABASE_URL`, persists source drafts and job results,
-and is the production scheduler entry point. To test one source locally, choose
-it on `/discovery` and select **Run selected source**. Interactive discovery is
-disabled when `NODE_ENV=production` because this MVP has no authentication.
+and is the production scheduler entry point. On `/discovery`, leave the source
+filter at **All approved sources** to run every connector, or choose one source
+to run only that connector. Interactive discovery is disabled when
+`NODE_ENV=production` because this MVP has no authentication.
 
 ## Tracked inputs and confidence
 

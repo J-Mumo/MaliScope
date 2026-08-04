@@ -130,8 +130,16 @@ export function DiscoveryDashboard() {
   }, [load]);
 
   const runDiscovery = async () => {
-    if (!sourceId) {
-      setNotice("Select one approved source before running discovery.");
+    const sourceIds = sourceId
+      ? [sourceId]
+      : sources
+          .filter(
+            (source) =>
+              source.accessStatus === "approved" && source.liveFetchEnabled,
+          )
+          .map((source) => source.id);
+    if (sourceIds.length === 0) {
+      setNotice("No approved sources are available for discovery.");
       return;
     }
     setRunning(true);
@@ -140,16 +148,28 @@ export function DiscoveryDashboard() {
       const response = await fetch("/api/discovery", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sourceIds: [sourceId] }),
+        body: JSON.stringify({ sourceIds }),
       });
       const body = await readJsonResponse<{
         error?: string;
-        results?: { imported: number; failed: number }[];
+        results?: {
+          sourceId: WebsiteSourceId;
+          imported: number;
+          failed: number;
+        }[];
       }>(response);
       if (!response.ok) throw new Error(body.error ?? "Discovery failed");
-      const result = body.results?.[0];
+      const results = body.results ?? [];
+      const imported = results.reduce(
+        (total, result) => total + result.imported,
+        0,
+      );
+      const failed = results.reduce(
+        (total, result) => total + result.failed,
+        0,
+      );
       setNotice(
-        `Discovery completed: ${result?.imported ?? 0} imported, ${result?.failed ?? 0} failed.`,
+        `Discovery completed across ${results.length} source${results.length === 1 ? "" : "s"}: ${imported} imported, ${failed} failed.`,
       );
       await load();
     } catch (error: unknown) {
@@ -251,10 +271,14 @@ export function DiscoveryDashboard() {
           </button>
           <button
             className="button button-primary"
-            disabled={running || !sourceId}
+            disabled={running}
             onClick={runDiscovery}
           >
-            {running ? "Discovering..." : "Run selected source"}
+            {running
+              ? "Discovering..."
+              : sourceId
+                ? "Run selected source"
+                : "Run all approved sources"}
           </button>
         </div>
       </section>
