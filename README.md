@@ -67,11 +67,16 @@ Approved source index pages
 Requires Node.js 22 or later, npm, and Docker (or an existing PostgreSQL
 database).
 
+The project Docker database binds host port `5433` to avoid collisions with a
+locally installed PostgreSQL server on the default port. Drizzle commands load
+`.env.local` automatically.
+
 ```powershell
 npm install
 Copy-Item .env.example .env.local
 docker compose up -d
 $env:DATABASE_URL="postgres://maliscope:maliscope@localhost:5432/maliscope"
+$env:DATABASE_URL=$env:DATABASE_URL -replace ':5432/', ':5433/'
 npm run db:migrate
 npm run dev
 ```
