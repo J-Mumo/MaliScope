@@ -8,9 +8,15 @@ import type {
   DiscoveryStatus,
 } from "@/sources/discovery-types";
 import { getDatabase } from "./client";
-import { analyses, discoveredListings, listings } from "./schema";
+import {
+  analyses,
+  discoveredListings,
+  discoverySourceCursors,
+  listings,
+} from "./schema";
 
 export interface DiscoveryRepository {
+  claimSourcePage(sourceId: string, pageCount: number): Promise<number>;
   upsertDraft(draft: SaleListingImportDraft): Promise<void>;
   list(filters?: DiscoveryFilters): Promise<DiscoveryRecord[]>;
   get(id: string): Promise<DiscoveryRecord | null>;
@@ -36,6 +42,28 @@ function toRecord(
 }
 
 export class PostgresDiscoveryRepository implements DiscoveryRepository {
+  async claimSourcePage(sourceId: string, pageCount: number): Promise<number> {
+    const now = new Date();
+    const [cursor] = await getDatabase()
+      .insert(discoverySourceCursors)
+      .values({ sourceId, currentPage: 1, updatedAt: now })
+      .onConflictDoUpdate({
+        target: discoverySourceCursors.sourceId,
+        set: {
+          currentPage: sql<number>`CASE
+            WHEN ${discoverySourceCursors.currentPage} >= ${pageCount}
+            THEN 1
+            ELSE ${discoverySourceCursors.currentPage} + 1
+          END`,
+          updatedAt: now,
+        },
+      })
+      .returning({ page: discoverySourceCursors.currentPage });
+    if (!cursor)
+      throw new Error(`Could not claim a discovery page for ${sourceId}`);
+    return cursor.page;
+  }
+
   async upsertDraft(draft: SaleListingImportDraft): Promise<void> {
     const seenAt = new Date(draft.capturedAt);
     await getDatabase()

@@ -76,7 +76,21 @@ export async function discoverApprovedSource(
   const runAt = options.runAt ?? new Date().toISOString();
   const candidateGroups: string[][] = [];
   const indexErrors: string[] = [];
-  for (const indexUrl of source.discovery.indexUrls ?? [source.saleUrl]) {
+  let indexUrls = [...(source.discovery.indexUrls ?? [source.saleUrl])];
+  const pagination = source.discovery.pagination;
+  if (pagination) {
+    const page = await repository.claimSourcePage(
+      source.id,
+      pagination.pageCount,
+    );
+    indexUrls = indexUrls.map((indexUrl) => {
+      if (page === 1) return indexUrl;
+      const pagedUrl = new URL(indexUrl);
+      pagedUrl.searchParams.set(pagination.queryParameter, String(page));
+      return pagedUrl.toString();
+    });
+  }
+  for (const indexUrl of indexUrls) {
     try {
       const indexHtml = await fetchHtml(indexUrl);
       candidateGroups.push(extractSaleDetailLinks(source, indexHtml));

@@ -11,7 +11,7 @@ describe("website source registry", () => {
   it.each([
     ["https://equitygroupholdings.com/ke/equity-assets/", "equity-assets"],
     ["https://hfmarketplace.hfcb.co.ke/", "hf-marketplace"],
-    ["https://jiji.co.ke/houses-apartments-for-sale", "jiji-kenya"],
+    ["https://jiji.co.ke/43-block-of-flat-for-sale", "jiji-kenya"],
     ["https://kenyapropertycentre.com/", "kenya-property-centre"],
     [
       "https://www.propertypro.co.ke/property-for-sale/property/",

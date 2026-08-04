@@ -1,5 +1,6 @@
 import {
   index,
+  integer,
   jsonb,
   pgTable,
   serial,
@@ -78,3 +79,9 @@ export const discoveredListings = pgTable(
     index("discovered_county_seen_idx").on(table.county, table.lastSeenAt),
   ],
 );
+
+export const discoverySourceCursors = pgTable("discovery_source_cursors", {
+  sourceId: text("source_id").primaryKey(),
+  currentPage: integer("current_page").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+});

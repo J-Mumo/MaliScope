@@ -239,13 +239,42 @@ function submarketFromAddress(
   );
 }
 
+const bedroomWords: Record<string, string> = {
+  one: "1",
+  two: "2",
+  three: "3",
+  four: "4",
+  five: "5",
+  six: "6",
+  seven: "7",
+  eight: "8",
+  nine: "9",
+  ten: "10",
+};
+
+function normalizeUnitLabel(value: string): string {
+  const normalized = value
+    .replace(/[-\s]+/g, " ")
+    .trim()
+    .toLowerCase()
+    .replace(/^(\d)(?=[a-z])/, "$1 ");
+  return normalized
+    .replace(
+      /^(one|two|three|four|five|six|seven|eight|nine|ten)\b/,
+      (word) => bedroomWords[word] ?? word,
+    )
+    .replace(/\b(?:br|bdrm|bedrooms?|bedroomed)\b/, "bedroom")
+    .replace(/\bbedsitters?\b/, "bedsitter")
+    .replace(/\bstudios?\b/, "studio");
+}
+
 function unitHintsFromText(value: string): ImportedUnitHint[] {
   const hints: ImportedUnitHint[] = [];
   const pattern =
-    /(\d{1,4})\s*(?:x|units?\s+of)?\s*(studio|bedsitter|[1-9]\s*(?:br|bedroom)s?)/gi;
+    /(\d{1,4})\s*(?:x\s*|units?\s*(?:of\s*)?|no\.?\s*)?(studios?|bedsitters?|(?:[1-9]|one|two|three|four|five|six|seven|eight|nine|ten)\s*(?:br|bdrm|bedrooms?|bedroomed))/gi;
   for (const match of value.matchAll(pattern)) {
     const count = Number(match[1]);
-    const label = match[2]?.replace(/\s+/g, " ").trim();
+    const label = match[2] ? normalizeUnitLabel(match[2]) : null;
     if (!label || !Number.isInteger(count) || count <= 0) continue;
     hints.push({
       label,
@@ -254,6 +283,19 @@ function unitHintsFromText(value: string): ImportedUnitHint[] {
     });
   }
   return hints.slice(0, 20);
+}
+
+function propertyTypeFromText(value: string): string | null {
+  const propertyTypes: [RegExp, string][] = [
+    [/\bblock of flats?\b/i, "Block of Flats"],
+    [/\bapartment block\b/i, "Apartment Block"],
+    [/\bmaisonette\b/i, "Maisonette"],
+    [/\bbungalow\b/i, "Bungalow"],
+    [/\bcondo(?:minium)?\b/i, "Condo"],
+    [/\bapartment\b/i, "Apartment"],
+    [/\bhouse\b/i, "House"],
+  ];
+  return propertyTypes.find(([pattern]) => pattern.test(value))?.[1] ?? null;
 }
 
 function imageUrls(record: JsonRecord | null, $: CheerioAPI): string[] {
@@ -378,11 +420,12 @@ export function parseSaleListingHtml(
         ? normalizeMoney(metaPrice, metaCurrency)
         : normalizeMoney(bodyPrice, bodyPrice ? "KES" : null);
   const bedrooms = numberValue(record?.numberOfBedrooms);
-  const type = firstString(
+  const structuredType = firstString(
     record?.accommodationCategory,
-    record?.["@type"],
     meta($, "property:type"),
   );
+  const titleType = propertyTypeFromText(title ?? "");
+  const type = firstString(structuredType, titleType, record?.["@type"]);
   const hints = unitHintsFromText(`${title ?? ""} ${description ?? ""}`);
   if (hints.length === 0 && bedrooms) {
     hints.push({
@@ -457,7 +500,16 @@ export function parseSaleListingHtml(
     submarket: submarket
       ? reported(submarket, "Submarket parsed from listing address")
       : missing(),
-    propertyType: type ? reported(type, "Listing property type") : missing(),
+    propertyType: type
+      ? reported(
+          type,
+          structuredType
+            ? "Structured listing property type"
+            : titleType
+              ? "Property type stated in listing title"
+              : "Schema.org listing type",
+        )
+      : missing(),
     bedrooms: bedrooms
       ? reported(bedrooms, "Schema.org bedroom count")
       : missing(),

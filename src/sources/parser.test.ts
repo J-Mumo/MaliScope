@@ -95,7 +95,59 @@ describe("sale listing parser", () => {
       draft.unitHints.map((hint) => [hint.label, hint.count.value]),
     ).toEqual([
       ["1 bedroom", 10],
-      ["2 bedrooms", 8],
+      ["2 bedroom", 8],
+    ]);
+  });
+
+  it("extracts Jiji block type and compact unit-mix wording", () => {
+    const html = `
+      <html>
+        <head>
+          <meta property="og:title" content="Furnished 2bdrm Block of Flats in Kitengela for sale">
+          <meta name="description" content="21 units 2bedroom, 12 units one bedroom, 2 bedsitters">
+        </head>
+        <body>Kajiado</body>
+      </html>
+    `;
+    const draft = parseSaleListingHtml(
+      "https://jiji.co.ke/kitengela/houses-apartments-for-sale/block-of-flats-example.html",
+      html,
+    );
+
+    expect(draft.propertyType).toMatchObject({
+      value: "Block of Flats",
+      status: "reported",
+    });
+    expect(
+      draft.unitHints.map((hint) => [hint.label, hint.count.value]),
+    ).toEqual([
+      ["2 bedroom", 21],
+      ["1 bedroom", 12],
+      ["bedsitter", 2],
+    ]);
+  });
+
+  it("extracts Jiji unit wording that uses no. and bedroomed", () => {
+    const html = `
+      <html>
+        <head>
+          <meta property="og:title" content="Block of Flats for sale">
+          <meta name="description" content="55 no. One bedrooms, 2 no. Bedsitters and 11 no. Two Bedroomed Apartments">
+        </head>
+        <body>Nairobi</body>
+      </html>
+    `;
+    const draft = parseSaleListingHtml(
+      "https://jiji.co.ke/kasarani/houses-apartments-for-sale/block-of-flats-example.html",
+      html,
+    );
+
+    expect(
+      draft.unitHints.map((hint) => [hint.label, hint.count.value]),
+    ).toEqual([
+      ["1 bedroom", 55],
+      ["bedsitter", 2],
+      ["2 bedroom", 11],
     ]);
   });
 

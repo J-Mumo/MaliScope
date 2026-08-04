@@ -11,6 +11,14 @@ import type { DiscoveryRepository } from "@/db/discovery-repository";
 
 class MemoryDiscoveryRepository implements DiscoveryRepository {
   drafts: SaleListingImportDraft[] = [];
+  pages = new Map<string, number>();
+
+  async claimSourcePage(sourceId: string, pageCount: number) {
+    const page = (this.pages.get(sourceId) ?? 0) + 1;
+    const claimed = page > pageCount ? 1 : page;
+    this.pages.set(sourceId, claimed);
+    return claimed;
+  }
 
   async upsertDraft(draft: SaleListingImportDraft) {
     this.drafts.push(draft);
@@ -127,6 +135,35 @@ describe("approved source discovery", () => {
     expect(result.imported).toBe(0);
     expect(result.failed).toBe(1);
     expect(result.errors[0]).toContain("HTTP 503");
+  });
+
+  it("rotates a paginated source through bounded result pages", async () => {
+    const repository = new MemoryDiscoveryRepository();
+    const source = getSourceById("jiji-kenya");
+    const detailUrl =
+      "https://jiji.co.ke/kitengela/houses-apartments-for-sale/block-of-flats-example.html";
+    const requestedIndexes: string[] = [];
+    const fetchHtml = vi.fn(async (url: string) => {
+      if (url.startsWith(source.saleUrl)) {
+        requestedIndexes.push(url);
+        return `<a href="${detailUrl}">Block listing</a>`;
+      }
+      return '<html><head><meta property="og:title" content="Block of Flats for sale"></head><body>Kajiado</body></html>';
+    });
+
+    await discoverApprovedSource("jiji-kenya", repository, {
+      fetchHtml,
+      sleep: vi.fn(async () => {}),
+    });
+    await discoverApprovedSource("jiji-kenya", repository, {
+      fetchHtml,
+      sleep: vi.fn(async () => {}),
+    });
+
+    expect(requestedIndexes).toEqual([
+      source.saleUrl,
+      `${source.saleUrl}?page=2`,
+    ]);
   });
 
   it("continues with later sources when an index is unavailable", async () => {

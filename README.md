@@ -38,6 +38,15 @@ deployment network. Neither access control nor an unavailable host is bypassed;
 the job reports the underlying source-access failure and continues with the
 remaining approved sources.
 
+Jiji discovery starts from the dedicated **Block of Flats** sale category because
+MaliScope evaluates income-producing apartment blocks, not the whole residential
+catalogue. It imports at most 20 detail pages per run and persists a page cursor,
+advancing through the category's 25 pages across scheduled runs before cycling
+back to refresh them. Jiji's category total (for example, “494 ads”) describes
+marketplace inventory; it is not used as the unit count of any property. Unit
+mix is extracted only from claims on an individual detail page, such as “21
+units 2-bedroom, 12 units one-bedroom, 2 bedsitters.”
+
 ## Architecture
 
 This repository is a single deployable full-stack TypeScript application:

@@ -33,6 +33,10 @@ export interface SourceRegistryEntry {
     detailLinkTextPattern?: string;
     indexUrls?: readonly string[];
     maxListingsPerRun: number;
+    pagination?: {
+      pageCount: number;
+      queryParameter: string;
+    };
     requestDelayMs: number;
   };
   knownLimitations: readonly string[];
@@ -93,7 +97,7 @@ export const sourceRegistry: readonly SourceRegistryEntry[] = [
   {
     id: "jiji-kenya",
     displayName: "Jiji Kenya",
-    saleUrl: "https://jiji.co.ke/houses-apartments-for-sale",
+    saleUrl: "https://jiji.co.ke/43-block-of-flat-for-sale",
     hosts: ["jiji.co.ke", "www.jiji.co.ke"],
     accessStatus: "approved",
     parserKind: "schema_org",
@@ -107,11 +111,16 @@ export const sourceRegistry: readonly SourceRegistryEntry[] = [
     discovery: {
       detailPathPattern: "^/[^/]+/houses-apartments-for-sale/[^/]+\\.html$",
       maxListingsPerRun: 20,
+      pagination: {
+        pageCount: 25,
+        queryParameter: "page",
+      },
       requestDelayMs: 1000,
     },
     knownLimitations: [
       "Classified listings have high duplicate and stale-record risk.",
-      "Most inventory is individual units rather than whole blocks.",
+      "Discovery intentionally prioritizes the Block of Flats category.",
+      "The reported category inventory count is not a property's unit mix.",
       "No public API or feed is documented.",
     ],
   },
