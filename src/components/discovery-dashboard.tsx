@@ -23,6 +23,21 @@ interface DiscoveryResponse {
   error?: string;
 }
 
+async function readJsonResponse<T>(response: Response): Promise<T> {
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.toLowerCase().includes("application/json")) {
+    await response.text();
+    throw new Error(
+      `Discovery server returned HTTP ${response.status} instead of JSON.`,
+    );
+  }
+  try {
+    return (await response.json()) as T;
+  } catch {
+    throw new Error("Discovery server returned malformed JSON.");
+  }
+}
+
 const kes = new Intl.NumberFormat("en-KE", {
   style: "currency",
   currency: "KES",
@@ -81,7 +96,7 @@ export function DiscoveryDashboard() {
     if (search.trim()) params.set("search", search.trim());
     try {
       const response = await fetch(`/api/discovery?${params}`);
-      const body = (await response.json()) as DiscoveryResponse;
+      const body = await readJsonResponse<DiscoveryResponse>(response);
       if (!response.ok)
         throw new Error(body.error ?? "Unable to load listings");
       setRecords(body.records);
@@ -112,10 +127,10 @@ export function DiscoveryDashboard() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sourceIds: [sourceId] }),
       });
-      const body = (await response.json()) as {
+      const body = await readJsonResponse<{
         error?: string;
         results?: { imported: number; failed: number }[];
-      };
+      }>(response);
       if (!response.ok) throw new Error(body.error ?? "Discovery failed");
       const result = body.results?.[0];
       setNotice(
@@ -142,10 +157,10 @@ export function DiscoveryDashboard() {
           }),
         },
       );
-      const body = (await response.json()) as {
+      const body = await readJsonResponse<{
         listingId?: string;
         error?: string;
-      };
+      }>(response);
 
       if (!response.ok || !body.listingId) {
         throw new Error(body.error ?? "Unable to open in underwriting");
