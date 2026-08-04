@@ -43,6 +43,21 @@ describe("approved source discovery", () => {
     ]);
   });
 
+  it("uses configured link text to exclude HassConsult navigation links", () => {
+    const source = getSourceById("hassconsult");
+    const html = `
+      <a href="/services">SERVICES</a>
+      <a href="/ankori">DETAILS</a>
+      <a href="/ankori-contact-form">ENQUIRE</a>
+      <a href="/elysian">DETAILS</a>
+    `;
+
+    expect(extractSaleDetailLinks(source, html)).toEqual([
+      "https://www.hassconsult.com/ankori",
+      "https://www.hassconsult.com/elysian",
+    ]);
+  });
+
   it("fetches, parses, and persists bounded candidate details", async () => {
     const repository = new MemoryDiscoveryRepository();
     const indexUrl = getSourceById("buyrentkenya").saleUrl;

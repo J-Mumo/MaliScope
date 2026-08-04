@@ -30,6 +30,7 @@ export interface SourceRegistryEntry {
   liveFetchEnabled: boolean;
   discovery: {
     detailPathPattern: string;
+    detailLinkTextPattern?: string;
     indexUrls?: readonly string[];
     maxListingsPerRun: number;
     requestDelayMs: number;
@@ -192,7 +193,7 @@ export const sourceRegistry: readonly SourceRegistryEntry[] = [
   {
     id: "hassconsult",
     displayName: "HassConsult",
-    saleUrl: "https://www.hassconsult.com/properties/",
+    saleUrl: "https://www.hassconsult.com/developments",
     hosts: ["hassconsult.com", "www.hassconsult.com"],
     accessStatus: "approved",
     parserKind: "schema_org",
@@ -204,7 +205,12 @@ export const sourceRegistry: readonly SourceRegistryEntry[] = [
       "Mozilla/5.0 (compatible; HassConsultBot/1.0; +https://www.hassconsult.com/)",
     liveFetchEnabled: true,
     discovery: {
-      detailPathPattern: "^/(?:property|properties)/.+",
+      detailPathPattern: "^/[a-z0-9-]+/?$",
+      detailLinkTextPattern: "^details$",
+      indexUrls: [
+        "https://www.hassconsult.com/investment-collection",
+        "https://www.hassconsult.com/living-collection",
+      ],
       maxListingsPerRun: 20,
       requestDelayMs: 1000,
     },

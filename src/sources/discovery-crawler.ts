@@ -24,12 +24,17 @@ export function extractSaleDetailLinks(
 ): string[] {
   const $ = load(indexHtml);
   const pattern = new RegExp(source.discovery.detailPathPattern, "i");
+  const linkTextPattern = source.discovery.detailLinkTextPattern
+    ? new RegExp(source.discovery.detailLinkTextPattern, "i")
+    : null;
   const hosts = new Set(source.hosts);
   const links = new Set<string>();
 
   $("a[href]").each((_, element) => {
     const href = $(element).attr("href");
     if (!href || href.startsWith("#")) return;
+    const linkText = $(element).text().replace(/\s+/g, " ").trim();
+    if (linkTextPattern && !linkTextPattern.test(linkText)) return;
     try {
       const url = new URL(href, source.saleUrl);
       if (

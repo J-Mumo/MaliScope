@@ -156,6 +156,7 @@ export function DiscoveryDashboard() {
           sourceId: WebsiteSourceId;
           imported: number;
           failed: number;
+          errors: string[];
         }[];
       }>(response);
       if (!response.ok) throw new Error(body.error ?? "Discovery failed");
@@ -168,8 +169,21 @@ export function DiscoveryDashboard() {
         (total, result) => total + result.failed,
         0,
       );
+      const issues = results
+        .filter((result) => result.errors.length > 0)
+        .map((result) => {
+          const sourceName =
+            sources.find((source) => source.id === result.sourceId)
+              ?.displayName ?? result.sourceId;
+          return `${sourceName}: ${result.errors.join(", ")}`;
+        });
       setNotice(
-        `Discovery completed across ${results.length} source${results.length === 1 ? "" : "s"}: ${imported} imported, ${failed} failed.`,
+        [
+          `Discovery completed across ${results.length} source${results.length === 1 ? "" : "s"}: ${imported} imported, ${failed} failed.`,
+          issues.length > 0 ? `Source issues: ${issues.join("; ")}` : null,
+        ]
+          .filter(Boolean)
+          .join(" "),
       );
       await load();
     } catch (error: unknown) {

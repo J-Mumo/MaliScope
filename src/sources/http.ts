@@ -55,15 +55,35 @@ export async function fetchApprovedSourceHtml(
     );
   }
 
-  const response = await fetcher(sourceUrl, {
-    method: "GET",
-    redirect: "error",
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    headers: {
-      Accept: "text/html,application/xhtml+xml",
-      "User-Agent": source.userAgent,
-    },
-  });
+  let response: Response;
+  try {
+    response = await fetcher(sourceUrl, {
+      method: "GET",
+      redirect: "error",
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      headers: {
+        Accept: "text/html,application/xhtml+xml",
+        "User-Agent": source.userAgent,
+      },
+    });
+  } catch (error: unknown) {
+    const cause =
+      error instanceof Error && error.cause instanceof Error
+        ? error.cause
+        : error;
+    const code =
+      cause && typeof cause === "object" && "code" in cause
+        ? String(cause.code)
+        : null;
+    const reason =
+      code ??
+      (cause instanceof Error && cause.message
+        ? cause.message
+        : "network error");
+    throw new LiveSourceAccessError(
+      `${source.displayName} request failed: ${reason}.`,
+    );
+  }
   if (!response.ok) {
     throw new LiveSourceAccessError(
       `${source.displayName} returned HTTP ${response.status}.`,
@@ -80,5 +100,14 @@ export async function fetchApprovedSourceHtml(
     );
   }
 
-  return readHtmlWithinLimit(response);
+  const html = await readHtmlWithinLimit(response);
+  if (
+    /_Incapsula_Resource|Incapsula incident ID|imperva/i.test(html) &&
+    /noindex\s*,?\s*nofollow/i.test(html)
+  ) {
+    throw new LiveSourceAccessError(
+      `${source.displayName} returned an Imperva bot-protection challenge instead of listing content.`,
+    );
+  }
+  return html;
 }

@@ -29,6 +29,15 @@ HTML fixtures. Parsed claims remain reported, location inference is estimated,
 unknown facts stay missing, and only a hash of the normalized extracted record
 is retained as the raw audit reference.
 
+Connector health is reported per source rather than treating every empty result
+as “no listings.” HassConsult discovery uses its current server-rendered
+`/investment-collection` and `/living-collection` detail links. Equity currently
+returns an Imperva challenge to this crawler and requires an allowlisted client,
+feed, or API from Equity. HF Marketplace's host must be reachable from the
+deployment network. Neither access control nor an unavailable host is bypassed;
+the job reports the underlying source-access failure and continues with the
+remaining approved sources.
+
 ## Architecture
 
 This repository is a single deployable full-stack TypeScript application:

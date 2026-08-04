@@ -18,7 +18,7 @@ describe("website source registry", () => {
       "propertypro-kenya",
     ],
     ["https://www.buyrentkenya.com/", "buyrentkenya"],
-    ["https://www.hassconsult.com/", "hassconsult"],
+    ["https://www.hassconsult.com/developments", "hassconsult"],
     ["https://www.knightfrank.co.ke/", "knight-frank-kenya"],
   ])("recognizes %s", (url, sourceId) => {
     expect(findSourceByUrl(url)?.id).toBe(sourceId);
@@ -99,5 +99,24 @@ describe("website source registry", () => {
       "exceeds the import size limit",
     );
     expect(cancelled).toBe(true);
+  });
+
+  it("reports anti-bot challenge pages explicitly", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        '<meta name="robots" content="noindex,nofollow"><script src="/_Incapsula_Resource"></script>',
+        {
+          status: 200,
+          headers: { "Content-Type": "text/html" },
+        },
+      ),
+    );
+
+    await expect(
+      fetchApprovedSourceHtml(
+        "https://equitygroupholdings.com/ke/equity-assets/",
+        fetcher,
+      ),
+    ).rejects.toThrow("Imperva bot-protection challenge");
   });
 });
