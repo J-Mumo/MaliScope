@@ -146,6 +146,14 @@ describe("sale listing parser", () => {
     expect(draft.askingPriceKsh.value).toBe("28000000");
   });
 
+  it("parses an unlabelled KES sale amount from marketplace detail text", () => {
+    const draft = parseSaleListingHtml(
+      "https://www.propertypro.co.ke/property/3-bedroom-flatapartment-for-sale-nyali-mombasa-5BRMY",
+      "<html><body><h1>Apartment for sale</h1><p>Must See KSH 40,000,000 3 Beds</p></body></html>",
+    );
+    expect(draft.askingPriceKsh.value).toBe("40000000");
+  });
+
   it("does not treat rent or service-charge text as an asking price", () => {
     const draft = parseSaleListingHtml(
       "https://jiji.co.ke/nairobi/houses-apartments-for-sale/example",

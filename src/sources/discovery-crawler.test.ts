@@ -1,0 +1,159 @@
+import { describe, expect, it, vi } from "vitest";
+import type { DiscoveryRecord } from "./discovery-types";
+import type { SaleListingImportDraft } from "./import-types";
+import {
+  discoverApprovedSource,
+  discoverAllApprovedSources,
+  extractSaleDetailLinks,
+} from "./discovery-crawler";
+import { getSourceById } from "./registry";
+import type { DiscoveryRepository } from "@/db/discovery-repository";
+
+class MemoryDiscoveryRepository implements DiscoveryRepository {
+  drafts: SaleListingImportDraft[] = [];
+
+  async upsertDraft(draft: SaleListingImportDraft) {
+    this.drafts.push(draft);
+  }
+
+  async list(): Promise<DiscoveryRecord[]> {
+    return [];
+  }
+
+  async get(): Promise<DiscoveryRecord | null> {
+    return null;
+  }
+
+  async setStatus(): Promise<void> {}
+}
+
+describe("approved source discovery", () => {
+  it("extracts unique same-host sale detail links only", () => {
+    const source = getSourceById("buyrentkenya");
+    const html = `
+      <a href="/listings/3-bedroom-apartment-for-sale-kilimani-4000001">One</a>
+      <a href="https://www.buyrentkenya.com/listings/3-bedroom-apartment-for-sale-kilimani-4000001?ref=home">Duplicate</a>
+      <a href="/listings/3-bedroom-apartment-for-rent-kilimani-4000002">Rent</a>
+      <a href="https://attacker.example/listings/block-for-sale-4000003">Other host</a>
+      <a href="/about">Navigation</a>
+    `;
+
+    expect(extractSaleDetailLinks(source, html)).toEqual([
+      "https://www.buyrentkenya.com/listings/3-bedroom-apartment-for-sale-kilimani-4000001",
+    ]);
+  });
+
+  it("fetches, parses, and persists bounded candidate details", async () => {
+    const repository = new MemoryDiscoveryRepository();
+    const indexUrl = getSourceById("buyrentkenya").saleUrl;
+    const detailUrl =
+      "https://www.buyrentkenya.com/listings/apartment-block-for-sale-kilimani-4000004";
+    const fetchHtml = vi.fn(async (url: string) => {
+      if (url === indexUrl) return `<a href="${detailUrl}">Listing</a>`;
+      if (url === detailUrl) {
+        return `
+          <script type="application/ld+json">
+            {
+              "@type": "Accommodation",
+              "name": "Apartment block for sale",
+              "address": {
+                "addressLocality": "Kilimani",
+                "addressRegion": "Nairobi"
+              },
+              "offers": {
+                "@type": "Offer",
+                "price": "65000000",
+                "priceCurrency": "KES"
+              }
+            }
+          </script>
+        `;
+      }
+      throw new Error("Unexpected URL");
+    });
+
+    const result = await discoverApprovedSource("buyrentkenya", repository, {
+      fetchHtml,
+      sleep: vi.fn(async () => {}),
+      runAt: "2026-08-04T08:00:00.000Z",
+    });
+
+    expect(result).toEqual({
+      sourceId: "buyrentkenya",
+      candidateLinks: 1,
+      imported: 1,
+      failed: 0,
+      errors: [],
+    });
+    expect(repository.drafts[0]).toMatchObject({
+      sourceId: "buyrentkenya",
+      sourceUrl: detailUrl,
+      title: { value: "Apartment block for sale", status: "reported" },
+      county: { value: "Nairobi", status: "reported" },
+      askingPriceKsh: { value: "65000000", status: "reported" },
+    });
+  });
+
+  it("records detail failures without aborting the source run", async () => {
+    const repository = new MemoryDiscoveryRepository();
+    const source = getSourceById("buyrentkenya");
+    const detailUrl =
+      "https://www.buyrentkenya.com/listings/block-for-sale-kilimani-4000005";
+    const fetchHtml = vi.fn(async (url: string) => {
+      if (url === source.saleUrl) return `<a href="${detailUrl}">Listing</a>`;
+      throw new Error("HTTP 503");
+    });
+
+    const result = await discoverApprovedSource("buyrentkenya", repository, {
+      fetchHtml,
+      sleep: vi.fn(async () => {}),
+    });
+
+    expect(result.imported).toBe(0);
+    expect(result.failed).toBe(1);
+    expect(result.errors[0]).toContain("HTTP 503");
+  });
+
+  it("continues with later sources when an index is unavailable", async () => {
+    const repository = new MemoryDiscoveryRepository();
+    const equity = getSourceById("equity-assets");
+    const buyRentKenya = getSourceById("buyrentkenya");
+    const detailUrl =
+      "https://www.buyrentkenya.com/listings/block-for-sale-kilimani-4000006";
+    const fetchHtml = vi.fn(async (url: string) => {
+      if (url === equity.saleUrl) throw new Error("HTTP 503");
+      if (url === buyRentKenya.saleUrl) {
+        return `<a href="${detailUrl}">Listing</a>`;
+      }
+      if (url === detailUrl) {
+        return `
+          <script type="application/ld+json">
+            {
+              "@type": "Accommodation",
+              "name": "Apartment block for sale",
+              "address": { "addressRegion": "Nairobi" }
+            }
+          </script>
+        `;
+      }
+      throw new Error("Unexpected URL");
+    });
+
+    const results = await discoverAllApprovedSources(
+      repository,
+      ["equity-assets", "buyrentkenya"],
+      { fetchHtml, sleep: vi.fn(async () => {}) },
+    );
+
+    expect(results[0]).toMatchObject({
+      sourceId: "equity-assets",
+      failed: 1,
+      imported: 0,
+    });
+    expect(results[1]).toMatchObject({
+      sourceId: "buyrentkenya",
+      failed: 0,
+      imported: 1,
+    });
+  });
+});

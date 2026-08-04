@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { fetchApprovedSourceHtml, readHtmlWithinLimit } from "./http";
-import { findSourceByUrl, parseSourceUrl, sourceRegistry } from "./registry";
+import {
+  findSourceByUrl,
+  isSourceApproved,
+  parseSourceUrl,
+  sourceRegistry,
+} from "./registry";
 
 describe("website source registry", () => {
   it.each([
@@ -19,13 +24,19 @@ describe("website source registry", () => {
     expect(findSourceByUrl(url)?.id).toBe(sourceId);
   });
 
-  it("keeps every reviewed source disabled pending permission", () => {
-    expect(sourceRegistry.every((source) => !source.liveFetchEnabled)).toBe(
-      true,
-    );
-    expect(
-      sourceRegistry.every((source) => source.accessStatus !== "approved"),
-    ).toBe(true);
+  it("requires complete activation metadata for every approved source", () => {
+    expect(sourceRegistry.every(isSourceApproved)).toBe(true);
+    for (const source of sourceRegistry) {
+      expect(source.agreementRef).toBeTruthy();
+      expect(source.permissionBasis).toBeTruthy();
+      expect(source.reviewedBy).toBeTruthy();
+      expect(source.userAgent).toContain("compatible");
+      expect(source.discovery.maxListingsPerRun).toBeLessThanOrEqual(20);
+      expect(source.discovery.requestDelayMs).toBeGreaterThanOrEqual(1000);
+      for (const indexUrl of source.discovery.indexUrls ?? [source.saleUrl]) {
+        expect(findSourceByUrl(indexUrl)?.id).toBe(source.id);
+      }
+    }
   });
 
   it.each([
@@ -45,15 +56,28 @@ describe("website source registry", () => {
     ).toBeNull();
   });
 
-  it("blocks before making a network request", async () => {
-    const fetcher = vi.fn<typeof fetch>();
-    await expect(
-      fetchApprovedSourceHtml(
-        "https://www.buyrentkenya.com/listings/example-3999440",
-        fetcher,
-      ),
-    ).rejects.toThrow("pending permission");
-    expect(fetcher).not.toHaveBeenCalled();
+  it("uses the registered identity for an approved source request", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response("<html></html>", {
+        status: 200,
+        headers: { "Content-Type": "text/html" },
+      }),
+    );
+    const url =
+      "https://www.buyrentkenya.com/listings/example-for-sale-3999440";
+    await expect(fetchApprovedSourceHtml(url, fetcher)).resolves.toBe(
+      "<html></html>",
+    );
+    expect(fetcher).toHaveBeenCalledWith(
+      url,
+      expect.objectContaining({
+        method: "GET",
+        redirect: "error",
+        headers: expect.objectContaining({
+          "User-Agent": expect.stringContaining("BuyRentKenyaBot"),
+        }),
+      }),
+    );
   });
 
   it("stops reading a streamed response at the byte limit", async () => {

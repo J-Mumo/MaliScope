@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 import {
   analyzeListing,
   counties,
@@ -99,6 +100,38 @@ export function UnderwritingDashboard() {
   const [saving, setSaving] = useState(false);
   const analysis = useMemo(() => analyzeListing(listing), [listing]);
   const profile = countyProfiles[listing.county];
+
+  useEffect(() => {
+    const listingId = new URLSearchParams(window.location.search).get(
+      "listing",
+    );
+    if (!listingId) return;
+    let active = true;
+    fetch(`/api/listings/${encodeURIComponent(listingId)}`)
+      .then(async (response) => {
+        const body = (await response.json()) as
+          PropertyListing | { error: string };
+        if (!response.ok || "error" in body) {
+          throw new Error(
+            "error" in body ? body.error : "Unable to load listing",
+          );
+        }
+        if (active) {
+          setListing(body);
+          setNotice("Discovered listing loaded. Complete the missing facts.");
+        }
+      })
+      .catch((error: unknown) => {
+        if (active) {
+          setNotice(
+            error instanceof Error ? error.message : "Unable to load listing",
+          );
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const update = (change: (draft: PropertyListing) => void) => {
     setListing((current) => {
@@ -269,8 +302,11 @@ export function UnderwritingDashboard() {
           <span className="brand-mark">M</span>
           <span>MaliScope</span>
         </a>
-        <div className="nav-meta">
-          <span>Kenya apartment intelligence</span>
+        <div className="nav-links">
+          <Link className="active" href="/">
+            Underwriting
+          </Link>
+          <Link href="/discovery">Listings discovery</Link>
           <span className="live-dot">MVP</span>
         </div>
       </nav>

@@ -158,6 +158,31 @@ function meta($: CheerioAPI, property: string): string | null {
   );
 }
 
+function salePriceFromBody(value: string): string | null {
+  const labelled = value.match(
+    /(?:asking price|sale price|selling (?:at|for)|price)\s*[:\-]?\s*((?:KSh|KES)\s*[\d,]+(?:\.\d+)?\s*(?:thousand|million|billion|k|m|bn)?)/i,
+  )?.[1];
+  if (labelled) return labelled;
+
+  const currencyAmounts =
+    /\b(?:KSh|KES)\s*[\d,]+(?:\.\d+)?\s*(?:thousand|million|billion|k|m|bn)?\b/gi;
+  for (const match of value.matchAll(currencyAmounts)) {
+    const precedingText = value.slice(
+      Math.max(0, match.index - 50),
+      match.index,
+    );
+    if (
+      /rent|service charge|per (?:month|week|day|year)|monthly|weekly|daily/i.test(
+        precedingText,
+      )
+    ) {
+      continue;
+    }
+    return match[0];
+  }
+  return null;
+}
+
 function addressFromRecord(record: JsonRecord | null): string | null {
   const rawAddress = asRecord(record?.address);
   if (!rawAddress) return firstString(record?.address);
@@ -344,10 +369,7 @@ export function parseSaleListingHtml(
     );
   const metaPrice = meta($, "product:price:amount");
   const metaCurrency = firstString(meta($, "product:price:currency"));
-  const bodyPrice =
-    bodyText.match(
-      /(?:asking price|sale price|selling (?:at|for)|price)\s*[:\-]?\s*((?:KSh|KES)\s*[\d,]+(?:\.\d+)?\s*(?:thousand|million|billion|k|m|bn)?)/i,
-    )?.[1] ?? null;
+  const bodyPrice = salePriceFromBody(bodyText);
   const price = rentalListing
     ? null
     : structuredPrice !== undefined

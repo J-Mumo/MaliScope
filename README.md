@@ -1,23 +1,19 @@
 # MaliScope
 
-MaliScope is an auditable cash-flow underwriting MVP for existing apartment
-blocks in Nairobi, Kiambu, Kajiado, Nakuru, and Mombasa. It combines manual or
-typed listing ingestion, explicit property and financing assumptions, stress
-scenarios, a maximum allowable offer (MAO), and a recommendation dashboard.
+MaliScope is an auditable cash-flow underwriting and approved-source discovery
+MVP for existing apartment blocks in Nairobi, Kiambu, Kajiado, Nakuru, and
+Mombasa. It combines website, manual, or typed listing ingestion, explicit
+property and financing assumptions, stress scenarios, a maximum allowable offer
+(MAO), and a recommendation dashboard.
 
-No live property portal is scraped or integrated. The bundled source is
-synthetic, and every future adapter must carry a documented permission basis.
+### Approved website connectors
 
-### Dormant website connectors
-
-MaliScope includes fixture-tested parsers and a URL-import workflow for Equity
-Assets, HF Marketplace, Jiji Kenya, Kenya Property Centre, PropertyPro Kenya,
-BuyRentKenya, HassConsult, and Knight Frank Kenya. These are **not active data
-sources**. The registry in `src/sources/registry.ts` keeps each source
-`pending_permission`, `manual_only`, or `blocked`, with live network access
-disabled.
-
-Activation requires all of the following in the registry:
+MaliScope includes bounded discovery crawlers, fixture-tested parsers, and
+single-URL import for Equity Assets, HF Marketplace, Jiji Kenya, Kenya Property
+Centre, PropertyPro Kenya, BuyRentKenya, HassConsult, and Knight Frank Kenya.
+The current registry marks these sources approved using the agreement metadata
+supplied for this deployment. A source is contacted only when its registry entry
+has all of:
 
 1. `accessStatus: "approved"`;
 2. a written `permissionBasis` and `agreementRef`;
@@ -26,10 +22,12 @@ Activation requires all of the following in the registry:
 5. `liveFetchEnabled: true`.
 
 Both the URL-import HTTP boundary and scheduled adapter permission check enforce
-that metadata before making a request. Tests use representative local HTML
-fixtures and never contact a listing website. Parsed claims remain reported,
-location inference is estimated, unknown facts stay missing, and only a hash of
-the normalized extracted record is retained as the raw audit reference.
+that metadata before making a request. Crawls use exact HTTPS host allowlists,
+reject redirects, cap responses at 2 MB and detail pages at 20 per source, and
+wait at least one second between detail requests. Tests use representative local
+HTML fixtures. Parsed claims remain reported, location inference is estimated,
+unknown facts stay missing, and only a hash of the normalized extracted record
+is retained as the raw audit reference.
 
 ## Architecture
 
@@ -55,11 +53,13 @@ React dashboard
   -> validated API routes
     -> PostgreSQL listing + analysis snapshots
 
-Manual/sample adapter
-  -> permission check
-    -> validated listing
-      -> pure underwriting engine
-        -> auditable scenario result + recommendation
+Approved source index pages
+  -> bounded same-host discovery
+    -> incomplete discovery draft + provenance
+      -> human review / county confirmation
+        -> validated underwriting listing
+          -> pure underwriting engine
+            -> auditable scenario result + recommendation
 ```
 
 ## Setup
@@ -81,6 +81,13 @@ example. Analysis runs locally as fields change. `Save` persists the listing
 and its current analysis; without `DATABASE_URL`, the API returns an explicit
 configuration error and local analysis still works.
 
+Open `http://localhost:3000/discovery` to browse persisted source drafts, filter
+by source, county, status, or text, run one approved source during local
+development, inspect freshness and missing facts, and promote a reviewed draft
+into underwriting. An inferred or missing county must be explicitly confirmed
+before promotion. Unknown rents, expenses, financing, and due-diligence facts
+remain missing, so promoted records normally begin as `NEEDS_DATA`.
+
 Run the safe sample discovery job:
 
 ```powershell
@@ -90,6 +97,17 @@ npm run job:sample
 With `DATABASE_URL`, it upserts and analyzes the synthetic listing. Without a
 database configuration, it runs in clearly labelled dry-run mode and prints
 the recommendation. It never makes a network request.
+
+Run bounded discovery for every approved source:
+
+```powershell
+npm run job:discover
+```
+
+This command requires `DATABASE_URL`, persists source drafts and job results,
+and is the production scheduler entry point. To test one source locally, choose
+it on `/discovery` and select **Run selected source**. Interactive discovery is
+disabled when `NODE_ENV=production` because this MVP has no authentication.
 
 ## Tracked inputs and confidence
 
@@ -241,11 +259,11 @@ formula audit trail.
 
 ## Scheduled deployment
 
-`createScheduledJobs` exposes discovery jobs (suggested cron `0 5 * * *`) and
-portfolio re-analysis (`0 6 * * *`) without binding the domain to a specific
-host. Invoke these functions from the production platform's scheduler, a
-container cron runner, or a managed job service. Production deployments should
-use one migration step before starting the standalone Next.js output.
+Run `npm run job:discover` from the production platform's scheduler, a container
+cron runner, or a managed job service (suggested cron `0 5 * * *`).
+`createScheduledJobs` also exposes framework-neutral sample discovery and
+portfolio re-analysis (`0 6 * * *`) boundaries. Production deployments should
+run `npm run db:migrate` before starting the Next.js application.
 
 Useful commands:
 
@@ -261,7 +279,13 @@ npm run build
 
 - County profile values are provisional examples, not live market data.
 - The MVP does not authenticate users or isolate portfolios.
-- There is no authorized third-party listing adapter yet.
+- Website layouts can change; parser failures are recorded per listing and
+  require adapter maintenance.
+- Some source index pages are client-rendered or intermittently unavailable, so
+  a run can legitimately discover zero candidates without treating that as
+  listing absence.
+- Discovery currently covers the configured sale index pages only and does not
+  paginate.
 - The dashboard saves snapshots but does not yet expose a portfolio/history
   browser.
 - Taxes specific to an investor, depreciation, appreciation, sale proceeds,

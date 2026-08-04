@@ -7,6 +7,7 @@ import {
   timestamp,
 } from "drizzle-orm/pg-core";
 import type { AnalysisResult, PropertyListing } from "@/domain";
+import type { SaleListingImportDraft } from "@/sources/import-types";
 
 export const listings = pgTable(
   "listings",
@@ -53,3 +54,27 @@ export const jobRuns = pgTable("job_runs", {
   startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
   completedAt: timestamp("completed_at", { withTimezone: true }),
 });
+
+export const discoveredListings = pgTable(
+  "discovered_listings",
+  {
+    id: text("id").primaryKey(),
+    sourceId: text("source_id").notNull(),
+    sourceUrl: text("source_url").notNull().unique(),
+    externalId: text("external_id"),
+    title: text("title"),
+    county: text("county"),
+    submarket: text("submarket"),
+    askingPriceKsh: text("asking_price_ksh"),
+    contentHash: text("content_hash").notNull(),
+    status: text("status").notNull().default("new"),
+    draft: jsonb("draft").$type<SaleListingImportDraft>().notNull(),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull(),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("discovered_source_status_idx").on(table.sourceId, table.status),
+    index("discovered_county_seen_idx").on(table.county, table.lastSeenAt),
+  ],
+);

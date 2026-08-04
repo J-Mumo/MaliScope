@@ -17,7 +17,8 @@
     "test:watch": "vitest",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "job:sample": "tsx src/jobs/run-sample.ts"
+    "job:sample": "tsx src/jobs/run-sample.ts",
+    "job:discover": "tsx src/jobs/run-discovery.ts"
   },
   "dependencies": {
     "cheerio": "^1.2.0",
