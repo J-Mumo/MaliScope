@@ -7,6 +7,7 @@ import {
   discoveryStatuses,
   type DiscoveryRecord,
 } from "@/sources/discovery-types";
+import { discoveryDataCompleteness } from "@/sources/discovery-sort";
 import {
   discoveryPreScreenStatuses,
   type DiscoveryPreScreen,
@@ -408,6 +409,7 @@ export function DiscoveryDashboard() {
                 (item) => item.id === record.sourceId,
               );
               const missing = missingFactCount(record);
+              const completeness = discoveryDataCompleteness(record);
               const screening = record.preScreen ?? unavailableScreen;
               const needsCountyConfirmation =
                 record.draft.county.status !== "reported";
@@ -487,6 +489,7 @@ export function DiscoveryDashboard() {
                   </div>
                   <div className="listing-facts">
                     <span>{record.draft.unitHints.length} unit hints</span>
+                    <span>{completeness}% source data available</span>
                     <span>{missing} discovery fields missing</span>
                     <span className={`review-state state-${record.status}`}>
                       {record.status}

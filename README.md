@@ -122,6 +122,12 @@ rent needed to pass. The screen visibly uses provisional county costs, 70% LTV,
 DSCR, 13% cash-on-cash, and 85% stress occupancy; it never presents those
 estimates as source-reported facts.
 
+Discovery results are ordered by provisional policy outcome—viable, negotiate,
+not viable, then needs data—and then by source-data completeness within each
+group. Completeness weights reported fields above estimated fields and counts
+the availability of core listing facts, unit composition, and reported gross
+rent. Freshness and title provide deterministic tie-breakers.
+
 Run the safe sample discovery job:
 
 ```powershell

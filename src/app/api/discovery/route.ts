@@ -13,6 +13,7 @@ import {
   websiteSourceIds,
 } from "@/sources/registry";
 import { preScreenDiscoveryDraft } from "@/sources/pre-screen";
+import { sortDiscoveryRecords } from "@/sources/discovery-sort";
 
 const runSchema = z.object({
   sourceIds: z.array(z.enum(websiteSourceIds)).min(1).max(8),
@@ -40,10 +41,12 @@ export async function GET(request: Request) {
   try {
     const records = await new PostgresDiscoveryRepository().list(filters);
     return NextResponse.json({
-      records: records.map((record) => ({
-        ...record,
-        preScreen: preScreenDiscoveryDraft(record.draft),
-      })),
+      records: sortDiscoveryRecords(
+        records.map((record) => ({
+          ...record,
+          preScreen: preScreenDiscoveryDraft(record.draft),
+        })),
+      ),
       sources: sourceRegistry.map((source) => ({
         id: source.id,
         displayName: source.displayName,
