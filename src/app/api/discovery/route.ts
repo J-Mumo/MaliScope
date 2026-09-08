@@ -36,6 +36,9 @@ export async function GET(request: Request) {
     ...(url.searchParams.get("search")
       ? { search: url.searchParams.get("search")! }
       : {}),
+    ...(url.searchParams.get("includeDelisted") === "1"
+      ? { includeDelisted: true }
+      : {}),
   };
 
   try {

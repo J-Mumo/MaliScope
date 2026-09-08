@@ -1,18 +1,11 @@
 import Decimal from "decimal.js";
-import {
-  countyProfiles,
-  screenCompleteListingPolicy,
-  type County,
-  type DueDiligence,
-  type PropertyListing,
-  type TrackedInput,
-} from "@/domain";
 import type { SaleListingImportDraft } from "./import-types";
 
 export const discoveryPreScreenStatuses = [
-  "VIABLE",
-  "NEGOTIATE",
-  "NOT_VIABLE",
+  "PROMISING",
+  "WORTH_A_LOOK",
+  "INTEREST_ONLY",
+  "UNDERWATER",
   "NEEDS_DATA",
 ] as const;
 
@@ -24,40 +17,35 @@ export interface DiscoveryPreScreen {
   label: string;
   reason: string;
   reportedMonthlyGrossRentKsh: string | null;
+  reportedOccupancy: string | null;
   requiredMonthlyGrossRentKsh: string | null;
   maximumAllowableOfferKsh: string | null;
+  monthlyDebtServiceKsh: string | null;
+  monthlyInterestKsh: string | null;
+  debtServiceCoverageRatio: string | null;
   assumptionsLabel: string;
 }
 
+const LOAN_LTV = new Decimal("0.70");
+const ANNUAL_INTEREST_RATE = new Decimal("0.145");
+const AMORTIZATION_MONTHS = 180;
+const PROMISING_DSCR = new Decimal("1.30");
+
 const assumptionsLabel =
-  "Provisional screen: county cost profile, 70% LTV, 14.5% interest, 15-year amortization, 13% cash-on-cash target, 1.30 DSCR, and 85% stress occupancy.";
+  "Loan-service screen: 70% LTV, 14.5% interest, 15-year amortization. PROMISING requires reported rent \u2265 1.30\u00d7 debt service. Underwriting adds operating costs, DSCR, and return targets.";
 const preScreenCache = new Map<string, DiscoveryPreScreen>();
 
-const estimated = <T>(value: T, note: string): TrackedInput<T> => ({
-  value,
-  status: "estimated",
-  note,
-});
-
-const missing = <T>(): TrackedInput<T> => ({
-  value: null,
-  status: "missing",
-});
-
-const dueDiligence: DueDiligence = {
-  title: missing(),
-  planningApprovals: missing(),
-  countyRatesAndLandRent: missing(),
-  utilityAndServiceArrears: missing(),
-  leasesAndRentRoll: missing(),
-  structuralCondition: missing(),
-};
+const monthlyPaymentFactor: Decimal = (() => {
+  const monthlyRate = ANNUAL_INTEREST_RATE.div(12);
+  const compound = monthlyRate.plus(1).pow(AMORTIZATION_MONTHS);
+  return monthlyRate.mul(compound).div(compound.minus(1));
+})();
 
 function normalizeMoney(value: string): Decimal | null {
   const match = value
     .replaceAll(",", "")
     .match(
-      /^\s*(?:KSh|KES)\s*(\d+(?:\.\d+)?)\s*(thousand|million|billion|k|m|bn)?\s*$/i,
+      /^\s*(?:(?:KSh|KES)\s*)?(\d+(?:\.\d+)?)\s*(thousand|million|billion|k|m|bn)?\s*$/i,
     );
   if (!match) return null;
   const magnitude = match[2]?.toLowerCase();
@@ -81,8 +69,8 @@ export function extractReportedMonthlyGrossRent(
   }
   const text = draft.description.value.replace(/\s+/g, " ");
   const monthlyPatterns = [
-    /(?:monthly\s+(?:gross\s+)?(?:rental\s+)?income|gross\s+monthly\s+rent|monthly\s+rent\s+roll|rental\s+income\s+per\s+month)\s*(?:of|is|at|:|-)?\s*((?:KSh|KES)\s*\d[\d,]*(?:\.\d+)?\s*(?:(?:thousand|million|billion|k|m|bn)\b)?)/i,
-    /(?:generat(?:es|ing)|rental\s+income\s+of)\s*((?:KSh|KES)\s*\d[\d,]*(?:\.\d+)?\s*(?:(?:thousand|million|billion|k|m|bn)\b)?)[^.]{0,40}(?:per\s+month|monthly)/i,
+    /(?:monthly\s+(?:gross\s+)?(?:rental\s+)?income|gross\s+monthly\s+rent|monthly\s+rent\s+roll|rental\s+income\s+per\s+month)\s*(?:of|is|at|:|-)?\s*((?:KSh|KES)?\s*\d[\d,]*(?:\.\d+)?\s*(?:(?:thousand|million|billion|k|m|bn)\b)?)/i,
+    /(?:generat(?:es|ing)|collects?|earn(?:s|ing)|producing|rental\s+income\s+of|income\s+of|monthly\s+income\s+of)\s*((?:KSh|KES)?\s*\d[\d,]*(?:\.\d+)?\s*(?:(?:thousand|million|billion|k|m|bn)\b)?)[^.]{0,40}(?:per\s+month|\/\s*month|monthly|\bmo\b)/i,
   ];
   for (const pattern of monthlyPatterns) {
     const match = text.match(pattern);
@@ -102,156 +90,84 @@ export function extractReportedMonthlyGrossRent(
   }
 
   const annualValue = text.match(
-    /(?:annual\s+(?:gross\s+)?(?:rental\s+)?income|annual\s+rent\s+roll)\s*(?:of|is|at|:|-)?\s*((?:KSh|KES)\s*\d[\d,]*(?:\.\d+)?\s*(?:(?:thousand|million|billion|k|m|bn)\b)?)/i,
+    /(?:annual\s+(?:gross\s+)?(?:rental\s+)?income|annual\s+rent\s+roll)\s*(?:of|is|at|:|-)?\s*((?:KSh|KES)?\s*\d[\d,]*(?:\.\d+)?\s*(?:(?:thousand|million|billion|k|m|bn)\b)?)/i,
   )?.[1];
   const annualAmount = annualValue ? normalizeMoney(annualValue) : null;
   return annualAmount ? annualAmount.div(12).toFixed(2) : null;
 }
 
-function totalReportedUnits(draft: SaleListingImportDraft): number | null {
-  if (
-    draft.unitHints.length === 0 ||
-    draft.unitHints.some((hint) => hint.count.value === null)
-  ) {
+export function extractReportedOccupancy(
+  draft: SaleListingImportDraft,
+): string | null {
+  if (draft.description.status !== "reported" || !draft.description.value) {
     return null;
   }
-  const total = draft.unitHints.reduce(
-    (sum, hint) => sum + (hint.count.value ?? 0),
-    0,
+  const text = draft.description.value.replace(/\s+/g, " ");
+  if (/\bfully\s+(?:let|occupied|tenanted|rented|booked)\b/i.test(text)) {
+    return "1.00";
+  }
+  const percent = text.match(
+    /(\d{1,3})\s*%\s*(?:occupan(?:cy|t)|occupied|let|tenanted|rented)/i,
   );
-  return Number.isInteger(total) && total > 0 ? total : null;
+  if (percent) {
+    const value = Number(percent[1]);
+    if (Number.isFinite(value) && value >= 0 && value <= 100) {
+      return new Decimal(value).div(100).toFixed(2);
+    }
+  }
+  const ratio = text.match(
+    /(\d{1,4})\s*(?:out\s+of|\/|of)\s*(\d{1,4})\s*(?:units?|apartments?|flats?|houses?)\s*(?:are\s+)?(?:let|occupied|tenanted|rented)/i,
+  );
+  if (ratio) {
+    const occupied = Number(ratio[1]);
+    const total = Number(ratio[2]);
+    if (total > 0 && occupied <= total) {
+      return new Decimal(occupied).div(total).toFixed(2);
+    }
+  }
+  return null;
 }
 
-function screeningListing(
-  draft: SaleListingImportDraft,
-  county: County,
-  totalUnits: number,
-  monthlyGrossRent: Decimal,
-): PropertyListing {
-  const profile = countyProfiles[county];
-  const askingPrice = new Decimal(draft.askingPriceKsh.value!);
-  const fixedAcquisitionCosts = Decimal.max(350_000, askingPrice.mul("0.005"));
+function classifyLoanService(
+  monthlyRent: Decimal,
+  monthlyDebtService: Decimal,
+  monthlyInterest: Decimal,
+): {
+  status: DiscoveryPreScreenStatus;
+  label: string;
+  reason: string;
+} {
+  const dscr = monthlyRent.div(monthlyDebtService);
+  if (dscr.gte(PROMISING_DSCR)) {
+    return {
+      status: "PROMISING",
+      label: "PROMISING",
+      reason:
+        "Reported rent comfortably covers the policy debt payment. Open underwriting to add operating costs and confirm returns.",
+    };
+  }
+  if (dscr.gte(1)) {
+    return {
+      status: "WORTH_A_LOOK",
+      label: "WORTH A LOOK",
+      reason:
+        "Reported rent covers the debt payment with thin margin. Verify occupancy and operating costs before committing.",
+    };
+  }
+  if (monthlyRent.gte(monthlyInterest)) {
+    return {
+      status: "INTEREST_ONLY",
+      label: "INTEREST ONLY",
+      reason:
+        "Rent covers the interest portion but not full amortization. Consider interest-only terms or a larger equity cheque.",
+    };
+  }
   return {
-    id: `pre-screen-${draft.extractedRecordSha256.slice(0, 24)}`,
-    title: draft.title.value ?? "Discovery pre-screen",
-    address: draft.address.value ?? "",
-    county,
-    submarket: draft.submarket.value ?? "",
-    askingPriceKsh: estimated(
-      askingPrice.toFixed(2),
-      "Source asking price used for provisional screening",
-    ),
-    unitMix: [
-      {
-        id: "aggregate-gross-rent",
-        label: "Whole property gross rent",
-        count: estimated(1, `${totalUnits} source-reported units aggregated`),
-        monthlyRentKsh: estimated(
-          monthlyGrossRent.toFixed(2),
-          "Source-reported or required gross monthly rent",
-        ),
-      },
-    ],
-    operatingCosts: {
-      annualFixedKsh: estimated(
-        new Decimal(profile.suggested.annualFixedOperatingCostPerUnitKsh)
-          .mul(totalUnits)
-          .toFixed(2),
-        profile.label,
-      ),
-      variablePercentOfEgi: estimated(
-        profile.suggested.variablePercentOfEgi,
-        profile.label,
-      ),
-    },
-    acquisitionCosts: {
-      percentOfPrice: estimated(
-        profile.suggested.acquisitionPercentOfPrice,
-        profile.label,
-      ),
-      fixedKsh: estimated(
-        fixedAcquisitionCosts.toFixed(2),
-        "Provisional legal, valuation, and diligence allowance",
-      ),
-      financingPercentOfDebt: estimated(
-        profile.suggested.financingPercentOfDebt,
-        profile.label,
-      ),
-      financingFixedKsh: estimated(
-        "150000",
-        "Provisional financing legal-cost allowance",
-      ),
-      initialReservesKsh: estimated(
-        monthlyGrossRent.mul(3).toFixed(2),
-        "Three months of gross rent for provisional reserves",
-      ),
-    },
-    loanTerms: {
-      maximumLtv: estimated("0.70", "MaliScope provisional screen"),
-      annualInterestRate: estimated("0.145", "MaliScope provisional screen"),
-      amortizationYears: estimated(15, "MaliScope provisional screen"),
-    },
-    assumptions: {
-      baseOccupancy: estimated(profile.suggested.baseOccupancy, profile.label),
-      collectionLoss: estimated(
-        profile.suggested.collectionLoss,
-        profile.label,
-      ),
-      otherIncomeAnnualKsh: estimated(
-        "0",
-        "No other income used in provisional screen",
-      ),
-      minimumDscr: estimated("1.30", "MaliScope default policy"),
-      minimumCashOnCash: estimated("0.13", "MaliScope default policy"),
-      stressOccupancy: estimated("0.85", "MaliScope default policy"),
-      minimumStressMonthlyCashFlowKsh: estimated(
-        "1",
-        "Strictly positive stressed cash flow",
-      ),
-    },
-    dueDiligence,
-    provenance: {
-      adapter: draft.sourceId,
-      externalId: draft.externalId,
-      sourceUrl: draft.sourceUrl,
-      capturedAt: draft.capturedAt,
-      permissionBasis: "Approved-source provisional discovery screen",
-      rawReference: `sha256:${draft.extractedRecordSha256}`,
-    },
-    createdAt: draft.capturedAt,
-    updatedAt: draft.capturedAt,
+    status: "UNDERWATER",
+    label: "UNDERWATER",
+    reason:
+      "Rent does not cover interest at policy financing. Requires an equity subsidy, a lower price, or a different rent basis.",
   };
-}
-
-function requiredMonthlyRent(
-  draft: SaleListingImportDraft,
-  county: County,
-  totalUnits: number,
-): Decimal | null {
-  const askingPrice = new Decimal(draft.askingPriceKsh.value!);
-  let low = new Decimal(0);
-  let high = Decimal.max(100_000, askingPrice.mul("0.01"));
-  let highAnalysis: ReturnType<typeof screenCompleteListingPolicy> | null =
-    null;
-
-  for (let attempt = 0; attempt < 12; attempt += 1) {
-    highAnalysis = screenCompleteListingPolicy(
-      screeningListing(draft, county, totalUnits, high),
-    );
-    if (highAnalysis.recommendation === "BUY") break;
-    high = high.mul(2);
-  }
-  if (highAnalysis?.recommendation !== "BUY") return null;
-
-  while (high.minus(low).gt(1_000)) {
-    const middle = low.plus(high).div(2);
-    const analysis = screenCompleteListingPolicy(
-      screeningListing(draft, county, totalUnits, middle),
-    );
-    if (analysis.recommendation === "BUY") high = middle;
-    else low = middle;
-  }
-  return high.div(1_000).ceil().mul(1_000);
 }
 
 function unavailable(reason: string): DiscoveryPreScreen {
@@ -260,84 +176,65 @@ function unavailable(reason: string): DiscoveryPreScreen {
     label: "NEEDS DATA",
     reason,
     reportedMonthlyGrossRentKsh: null,
+    reportedOccupancy: null,
     requiredMonthlyGrossRentKsh: null,
     maximumAllowableOfferKsh: null,
+    monthlyDebtServiceKsh: null,
+    monthlyInterestKsh: null,
+    debtServiceCoverageRatio: null,
     assumptionsLabel,
   };
 }
 
 function calculatePreScreen(draft: SaleListingImportDraft): DiscoveryPreScreen {
   if (!draft.askingPriceKsh.value) {
-    return unavailable("Asking price is required for a viability pre-screen.");
-  }
-  if (!draft.county.value) {
-    return unavailable("County is required to select provisional cost inputs.");
-  }
-  const totalUnits = totalReportedUnits(draft);
-  if (!totalUnits) {
     return unavailable(
-      "A complete source-reported unit count is required for the cost screen.",
+      "Asking price is required to compute the loan-service screen.",
     );
   }
-
-  const requiredRent = requiredMonthlyRent(
-    draft,
-    draft.county.value,
-    totalUnits,
-  );
+  const askingPrice = new Decimal(draft.askingPriceKsh.value);
+  const loan = askingPrice.mul(LOAN_LTV);
+  const monthlyDebtService = loan.mul(monthlyPaymentFactor);
+  const monthlyInterest = loan.mul(ANNUAL_INTEREST_RATE).div(12);
+  const requiredRent = monthlyDebtService.mul(PROMISING_DSCR);
+  const reportedOccupancy = extractReportedOccupancy(draft);
   const reportedRent = extractReportedMonthlyGrossRent(draft);
+
   if (!reportedRent) {
     return {
       ...unavailable(
-        requiredRent
-          ? "Gross monthly rent is not explicitly reported; compare verified rent against the threshold below."
-          : "Gross monthly rent is required and no feasible threshold could be derived.",
+        "Gross monthly rent is not explicitly reported. Compare a verified rent against the threshold below.",
       ),
-      requiredMonthlyGrossRentKsh: requiredRent?.toFixed(2) ?? null,
+      reportedOccupancy,
+      requiredMonthlyGrossRentKsh: requiredRent.toFixed(2),
+      monthlyDebtServiceKsh: monthlyDebtService.toFixed(2),
+      monthlyInterestKsh: monthlyInterest.toFixed(2),
     };
   }
 
-  const analysis = screenCompleteListingPolicy(
-    screeningListing(
-      draft,
-      draft.county.value,
-      totalUnits,
-      new Decimal(reportedRent),
-    ),
+  const rent = new Decimal(reportedRent);
+  const dscr = rent.div(monthlyDebtService);
+  const promisingMao = rent.div(
+    LOAN_LTV.mul(monthlyPaymentFactor).mul(PROMISING_DSCR),
   );
-  const base = {
-    reportedMonthlyGrossRentKsh: reportedRent,
-    requiredMonthlyGrossRentKsh: requiredRent?.toFixed(2) ?? null,
-    maximumAllowableOfferKsh: analysis.maximumAllowableOfferKsh,
-    assumptionsLabel,
-  };
-  if (analysis.recommendation === "BUY") {
-    return {
-      ...base,
-      status: "VIABLE",
-      label: "PROVISIONALLY VIABLE",
-      reason:
-        "Reported gross rent passes the provisional policy screen at the asking price.",
-    };
-  }
+  const { status, label, reason } = classifyLoanService(
+    rent,
+    monthlyDebtService,
+    monthlyInterest,
+  );
 
-  if (analysis.recommendation === "NEGOTIATE_TO_KSH_X_OR_BELOW") {
-    return {
-      ...base,
-      status: "NEGOTIATE",
-      label: "NEGOTIATE",
-      reason:
-        "Reported gross rent does not pass at the asking price, but a lower provisional MAO is feasible.",
-    };
-  }
   return {
-    ...base,
-    status: "NOT_VIABLE",
-    label: "NOT VIABLE",
-    reason:
-      analysis.recommendation === "REJECT"
-        ? "No positive offer passes the provisional policy screen."
-        : "Required screening inputs remain incomplete.",
+    status,
+    label,
+    reason,
+    reportedMonthlyGrossRentKsh: reportedRent,
+    reportedOccupancy,
+    requiredMonthlyGrossRentKsh: requiredRent.toFixed(2),
+    maximumAllowableOfferKsh: promisingMao.toFixed(2),
+    monthlyDebtServiceKsh: monthlyDebtService.toFixed(2),
+    monthlyInterestKsh: monthlyInterest.toFixed(2),
+    debtServiceCoverageRatio: dscr.toFixed(2),
+    assumptionsLabel,
   };
 }
 
@@ -347,12 +244,7 @@ export function preScreenDiscoveryDraft(
   const cacheKey = JSON.stringify({
     extractedRecordSha256: draft.extractedRecordSha256,
     askingPriceKsh: draft.askingPriceKsh,
-    county: draft.county,
     description: draft.description,
-    unitHints: draft.unitHints.map((hint) => ({
-      label: hint.label,
-      count: hint.count,
-    })),
   });
   const cached = preScreenCache.get(cacheKey);
   if (cached) return cached;

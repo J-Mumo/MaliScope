@@ -4,9 +4,17 @@ const MAX_HTML_BYTES = 2 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 15_000;
 
 export class LiveSourceAccessError extends Error {
-  constructor(message: string) {
+  readonly status?: number;
+  readonly gone: boolean;
+
+  constructor(
+    message: string,
+    options: { status?: number; gone?: boolean } = {},
+  ) {
     super(message);
     this.name = "LiveSourceAccessError";
+    this.status = options.status;
+    this.gone = options.gone ?? false;
   }
 }
 
@@ -87,6 +95,7 @@ export async function fetchApprovedSourceHtml(
   if (!response.ok) {
     throw new LiveSourceAccessError(
       `${source.displayName} returned HTTP ${response.status}.`,
+      { status: response.status, gone: response.status === 404 || response.status === 410 },
     );
   }
   const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";

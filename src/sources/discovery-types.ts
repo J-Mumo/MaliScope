@@ -15,6 +15,7 @@ export interface DiscoveryFilters {
   county?: string;
   status?: DiscoveryStatus;
   search?: string;
+  includeDelisted?: boolean;
 }
 
 export interface DiscoveryRecord {

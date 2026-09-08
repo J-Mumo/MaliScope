@@ -1,4 +1,4 @@
-import { and, desc, eq, ilike, or, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, ilike, lte, ne, or, sql, type SQL } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import type { AnalysisResult, PropertyListing } from "@/domain";
 import type { SaleListingImportDraft } from "@/sources/import-types";
@@ -21,6 +21,11 @@ export interface DiscoveryRepository {
   list(filters?: DiscoveryFilters): Promise<DiscoveryRecord[]>;
   get(id: string): Promise<DiscoveryRecord | null>;
   setStatus(id: string, status: DiscoveryStatus): Promise<void>;
+  findStaleRecords(
+    sourceId: string,
+    options: { notSeenSince: Date; limit: number },
+  ): Promise<DiscoveryRecord[]>;
+  markDelisted(id: string): Promise<void>;
 }
 
 export function discoveryRecordId(draft: SaleListingImportDraft): string {
@@ -126,6 +131,8 @@ export class PostgresDiscoveryRepository implements DiscoveryRepository {
     }
     if (filters.status) {
       conditions.push(eq(discoveredListings.status, filters.status));
+    } else if (!filters.includeDelisted) {
+      conditions.push(ne(discoveredListings.status, "delisted"));
     }
     const search = filters.search?.trim();
     if (search) {
@@ -163,6 +170,38 @@ export class PostgresDiscoveryRepository implements DiscoveryRepository {
         status,
         reviewedAt: status === "reviewed" ? new Date() : null,
       })
+      .where(eq(discoveredListings.id, id))
+      .returning({ id: discoveredListings.id });
+    if (result.length === 0) throw new Error("Discovered listing not found");
+  }
+
+  async findStaleRecords(
+    sourceId: string,
+    options: { notSeenSince: Date; limit: number },
+  ): Promise<DiscoveryRecord[]> {
+    if (options.limit <= 0) return [];
+    const rows = await getDatabase()
+      .select()
+      .from(discoveredListings)
+      .where(
+        and(
+          eq(discoveredListings.sourceId, sourceId),
+          or(
+            eq(discoveredListings.status, "new"),
+            eq(discoveredListings.status, "reviewed"),
+          )!,
+          lte(discoveredListings.lastSeenAt, options.notSeenSince),
+        ),
+      )
+      .orderBy(discoveredListings.lastSeenAt)
+      .limit(options.limit);
+    return rows.map(toRecord);
+  }
+
+  async markDelisted(id: string): Promise<void> {
+    const result = await getDatabase()
+      .update(discoveredListings)
+      .set({ status: "delisted" })
       .where(eq(discoveredListings.id, id))
       .returning({ id: discoveredListings.id });
     if (result.length === 0) throw new Error("Discovered listing not found");

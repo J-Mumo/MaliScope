@@ -7,11 +7,14 @@ import {
   extractSaleDetailLinks,
 } from "./discovery-crawler";
 import { getSourceById } from "./registry";
+import { LiveSourceAccessError } from "./http";
 import type { DiscoveryRepository } from "@/db/discovery-repository";
 
 class MemoryDiscoveryRepository implements DiscoveryRepository {
   drafts: SaleListingImportDraft[] = [];
   pages = new Map<string, number>();
+  stale: DiscoveryRecord[] = [];
+  delisted: string[] = [];
 
   async claimSourcePage(sourceId: string, pageCount: number) {
     const page = (this.pages.get(sourceId) ?? 0) + 1;
@@ -33,6 +36,14 @@ class MemoryDiscoveryRepository implements DiscoveryRepository {
   }
 
   async setStatus(): Promise<void> {}
+
+  async findStaleRecords(): Promise<DiscoveryRecord[]> {
+    return this.stale;
+  }
+
+  async markDelisted(id: string): Promise<void> {
+    this.delisted.push(id);
+  }
 }
 
 describe("approved source discovery", () => {
@@ -106,6 +117,9 @@ describe("approved source discovery", () => {
       candidateLinks: 1,
       imported: 1,
       failed: 0,
+      verified: 0,
+      refreshed: 0,
+      delisted: 0,
       errors: [],
     });
     expect(repository.drafts[0]).toMatchObject({
@@ -206,6 +220,106 @@ describe("approved source discovery", () => {
       sourceId: "buyrentkenya",
       failed: 0,
       imported: 1,
+    });
+  });
+
+  it("marks stored listings as delisted when re-fetch returns 404", async () => {
+    const repository = new MemoryDiscoveryRepository();
+    const source = getSourceById("jiji-kenya");
+    const staleUrl =
+      "https://jiji.co.ke/bamburi/houses-apartments-for-sale/expired-block-of-flats-example.html";
+    repository.stale = [
+      {
+        id: "stale-1",
+        sourceId: "jiji-kenya",
+        sourceUrl: staleUrl,
+        externalId: null,
+        title: "Expired block",
+        county: "Mombasa",
+        submarket: "Bamburi",
+        askingPriceKsh: null,
+        status: "new",
+        draft: {} as SaleListingImportDraft,
+        firstSeenAt: "2026-07-01T00:00:00.000Z",
+        lastSeenAt: "2026-07-01T00:00:00.000Z",
+        reviewedAt: null,
+      },
+    ];
+    const fetchHtml = vi.fn(async (url: string) => {
+      if (url.startsWith(source.saleUrl)) return "";
+      if (url === staleUrl) {
+        throw new LiveSourceAccessError(
+          "Jiji Kenya returned HTTP 404.",
+          { status: 404, gone: true },
+        );
+      }
+      throw new Error("Unexpected URL");
+    });
+
+    const result = await discoverApprovedSource("jiji-kenya", repository, {
+      fetchHtml,
+      sleep: vi.fn(async () => {}),
+      runAt: "2026-09-01T00:00:00.000Z",
+    });
+
+    expect(result.verified).toBe(1);
+    expect(result.delisted).toBe(1);
+    expect(result.refreshed).toBe(0);
+    expect(repository.delisted).toEqual(["stale-1"]);
+  });
+
+  it("refreshes a stored listing when the detail page still parses", async () => {
+    const repository = new MemoryDiscoveryRepository();
+    const source = getSourceById("jiji-kenya");
+    const staleUrl =
+      "https://jiji.co.ke/kasarani/houses-apartments-for-sale/active-block-of-flats-example.html";
+    repository.stale = [
+      {
+        id: "stale-2",
+        sourceId: "jiji-kenya",
+        sourceUrl: staleUrl,
+        externalId: null,
+        title: "Active block",
+        county: "Nairobi",
+        submarket: "Kasarani",
+        askingPriceKsh: null,
+        status: "new",
+        draft: {} as SaleListingImportDraft,
+        firstSeenAt: "2026-07-01T00:00:00.000Z",
+        lastSeenAt: "2026-07-01T00:00:00.000Z",
+        reviewedAt: null,
+      },
+    ];
+    const fetchHtml = vi.fn(async (url: string) => {
+      if (url.startsWith(source.saleUrl)) return "";
+      if (url === staleUrl) {
+        return `
+          <script type="application/ld+json">
+            {
+              "@type": "Accommodation",
+              "name": "Refreshed block of flats",
+              "address": { "addressRegion": "Nairobi" }
+            }
+          </script>
+        `;
+      }
+      throw new Error("Unexpected URL");
+    });
+
+    const result = await discoverApprovedSource("jiji-kenya", repository, {
+      fetchHtml,
+      sleep: vi.fn(async () => {}),
+      runAt: "2026-09-01T00:00:00.000Z",
+    });
+
+    expect(result.verified).toBe(1);
+    expect(result.refreshed).toBe(1);
+    expect(result.delisted).toBe(0);
+    expect(repository.delisted).toEqual([]);
+    expect(repository.drafts.at(-1)).toMatchObject({
+      sourceId: "jiji-kenya",
+      sourceUrl: staleUrl,
+      title: { value: "Refreshed block of flats", status: "reported" },
     });
   });
 });

@@ -1,6 +1,6 @@
 import { load } from "cheerio";
 import type { DiscoveryRepository } from "@/db/discovery-repository";
-import { fetchApprovedSourceHtml } from "./http";
+import { fetchApprovedSourceHtml, LiveSourceAccessError } from "./http";
 import { parseSaleListingHtml } from "./parser";
 import {
   getSourceById,
@@ -15,8 +15,14 @@ export interface SourceDiscoveryResult {
   candidateLinks: number;
   imported: number;
   failed: number;
+  verified: number;
+  refreshed: number;
+  delisted: number;
   errors: string[];
 }
+
+const VERIFY_STALE_DAYS = 7;
+const VERIFY_LIMIT_PER_RUN = 10;
 
 export function extractSaleDetailLinks(
   source: SourceRegistryEntry,
@@ -123,6 +129,9 @@ export async function discoverApprovedSource(
     candidateLinks: candidates.length,
     imported: 0,
     failed: indexErrors.length,
+    verified: 0,
+    refreshed: 0,
+    delisted: 0,
     errors: indexErrors,
   };
 
@@ -139,6 +148,43 @@ export async function discoverApprovedSource(
       result.failed += 1;
       result.errors.push(
         `${sourceUrl}: ${error instanceof Error ? error.message : "Unknown import error"}`,
+      );
+    }
+  }
+
+  const staleCutoff = new Date(
+    new Date(runAt).getTime() - VERIFY_STALE_DAYS * 86_400_000,
+  );
+  const candidateSet = new Set(candidates);
+  const staleRecords = (
+    await repository.findStaleRecords(source.id, {
+      notSeenSince: staleCutoff,
+      limit: VERIFY_LIMIT_PER_RUN,
+    })
+  ).filter((record) => !candidateSet.has(record.sourceUrl));
+
+  for (const [index, record] of staleRecords.entries()) {
+    if (
+      (candidates.length > 0 || index > 0) &&
+      source.discovery.requestDelayMs > 0
+    ) {
+      await sleep(source.discovery.requestDelayMs);
+    }
+    try {
+      const detailHtml = await fetchHtml(record.sourceUrl);
+      const draft = parseSaleListingHtml(record.sourceUrl, detailHtml, runAt);
+      await repository.upsertDraft(draft);
+      result.verified += 1;
+      result.refreshed += 1;
+    } catch (error: unknown) {
+      result.verified += 1;
+      if (error instanceof LiveSourceAccessError && error.gone) {
+        await repository.markDelisted(record.id);
+        result.delisted += 1;
+        continue;
+      }
+      result.errors.push(
+        `${record.sourceUrl}: ${error instanceof Error ? error.message : "Unknown verification error"}`,
       );
     }
   }
@@ -165,6 +211,9 @@ export async function discoverAllApprovedSources(
         candidateLinks: 0,
         imported: 0,
         failed: 1,
+        verified: 0,
+        refreshed: 0,
+        delisted: 0,
         errors: [
           error instanceof Error ? error.message : "Unknown source error",
         ],

@@ -4,10 +4,11 @@ import type { ImportedField } from "./import-types";
 import type { DiscoveryPreScreenStatus } from "./pre-screen";
 
 const viabilityRank: Record<DiscoveryPreScreenStatus, number> = {
-  VIABLE: 0,
-  NEGOTIATE: 1,
-  NOT_VIABLE: 2,
-  NEEDS_DATA: 3,
+  PROMISING: 0,
+  WORTH_A_LOOK: 1,
+  INTEREST_ONLY: 2,
+  UNDERWATER: 3,
+  NEEDS_DATA: 4,
 };
 
 function fieldScore(field: ImportedField<unknown>): number {

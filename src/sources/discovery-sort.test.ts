@@ -15,7 +15,12 @@ function field<T>(
 
 function record(
   id: string,
-  status: "VIABLE" | "NEGOTIATE" | "NOT_VIABLE" | "NEEDS_DATA",
+  status:
+    | "PROMISING"
+    | "WORTH_A_LOOK"
+    | "INTEREST_ONLY"
+    | "UNDERWATER"
+    | "NEEDS_DATA",
   complete: boolean,
 ): DiscoveryRecord {
   const available = <T>(value: T) =>
@@ -67,8 +72,12 @@ function record(
       label: status,
       reason: "Test",
       reportedMonthlyGrossRentKsh: complete ? "500000" : null,
+      reportedOccupancy: null,
       requiredMonthlyGrossRentKsh: null,
       maximumAllowableOfferKsh: null,
+      monthlyDebtServiceKsh: null,
+      monthlyInterestKsh: null,
+      debtServiceCoverageRatio: null,
       assumptionsLabel: "Test",
     },
   };
@@ -78,15 +87,15 @@ describe("discovery sorting", () => {
   it("orders viability before data completeness", () => {
     const records = [
       record("needs-complete", "NEEDS_DATA", true),
-      record("not-viable", "NOT_VIABLE", true),
-      record("viable-incomplete", "VIABLE", false),
-      record("negotiate", "NEGOTIATE", true),
+      record("underwater", "UNDERWATER", true),
+      record("promising-incomplete", "PROMISING", false),
+      record("worth-a-look", "WORTH_A_LOOK", true),
     ];
 
     expect(sortDiscoveryRecords(records).map(({ id }) => id)).toEqual([
-      "viable-incomplete",
-      "negotiate",
-      "not-viable",
+      "promising-incomplete",
+      "worth-a-look",
+      "underwater",
       "needs-complete",
     ]);
   });

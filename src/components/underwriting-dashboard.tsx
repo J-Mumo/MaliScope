@@ -8,6 +8,7 @@ import {
   countyProfiles,
   propertyListingSchema,
   seededListing,
+  type County,
   type DueDiligenceKey,
   type PropertyListing,
   type TrackedInput,
@@ -78,7 +79,7 @@ function blankListing(): PropertyListing {
   };
   listing.createdAt = now;
   listing.updatedAt = now;
-  return listing;
+  return seedWithCountyProfile(listing);
 }
 
 const diligenceLabels: Record<DueDiligenceKey, string> = {
@@ -90,6 +91,204 @@ const diligenceLabels: Record<DueDiligenceKey, string> = {
   structuralCondition: "Structural condition verified",
 };
 
+function resolveCounty(county: County | null | undefined): County {
+  if (county && county in countyProfiles) return county;
+  return "Nairobi";
+}
+
+function shouldSeed(
+  field: TrackedInput<unknown>,
+  overrideEstimated: boolean,
+): boolean {
+  if (field.status === "missing") return true;
+  if (overrideEstimated && field.status === "estimated") return true;
+  return false;
+}
+
+const estimatedInput = <T,>(
+  value: T,
+  note: string,
+): TrackedInput<T> => ({
+  value,
+  status: "estimated",
+  note,
+});
+
+function totalUnitCount(listing: PropertyListing): number {
+  return listing.unitMix.reduce(
+    (sum, unit) => sum + (unit.count.value ?? 0),
+    0,
+  );
+}
+
+function totalMonthlyRent(listing: PropertyListing): number {
+  return listing.unitMix.reduce((sum, unit) => {
+    const count = unit.count.value ?? 0;
+    const rent = Number(unit.monthlyRentKsh.value ?? 0);
+    return sum + (Number.isFinite(rent) ? count * rent : 0);
+  }, 0);
+}
+
+function seedWithCountyProfile(
+  listing: PropertyListing,
+  { overrideEstimated = false }: { overrideEstimated?: boolean } = {},
+): PropertyListing {
+  const county = resolveCounty(listing.county);
+  const profile = countyProfiles[county];
+  const draft = structuredClone(listing);
+  draft.county = county;
+  const label = profile.label;
+  const totalUnits = Math.max(1, totalUnitCount(draft));
+  const askingPrice = Number(draft.askingPriceKsh.value ?? 0);
+  const monthlyRent = totalMonthlyRent(draft);
+
+  if (shouldSeed(draft.operatingCosts.annualFixedKsh, overrideEstimated)) {
+    const fixed = Number(
+      profile.suggested.annualFixedOperatingCostPerUnitKsh,
+    );
+    draft.operatingCosts.annualFixedKsh = estimatedInput(
+      (fixed * totalUnits).toFixed(2),
+      label,
+    );
+  }
+  if (shouldSeed(draft.operatingCosts.variablePercentOfEgi, overrideEstimated)) {
+    draft.operatingCosts.variablePercentOfEgi = estimatedInput(
+      profile.suggested.variablePercentOfEgi,
+      label,
+    );
+  }
+  if (shouldSeed(draft.acquisitionCosts.percentOfPrice, overrideEstimated)) {
+    draft.acquisitionCosts.percentOfPrice = estimatedInput(
+      profile.suggested.acquisitionPercentOfPrice,
+      label,
+    );
+  }
+  if (shouldSeed(draft.acquisitionCosts.fixedKsh, overrideEstimated)) {
+    const fixedAcquisition = Math.max(350_000, askingPrice * 0.005);
+    draft.acquisitionCosts.fixedKsh = estimatedInput(
+      fixedAcquisition.toFixed(2),
+      "Provisional legal, valuation, and diligence allowance",
+    );
+  }
+  if (
+    shouldSeed(
+      draft.acquisitionCosts.financingPercentOfDebt,
+      overrideEstimated,
+    )
+  ) {
+    draft.acquisitionCosts.financingPercentOfDebt = estimatedInput(
+      profile.suggested.financingPercentOfDebt,
+      label,
+    );
+  }
+  if (shouldSeed(draft.acquisitionCosts.financingFixedKsh, overrideEstimated)) {
+    draft.acquisitionCosts.financingFixedKsh = estimatedInput(
+      "150000",
+      "Provisional financing legal-cost allowance",
+    );
+  }
+  if (shouldSeed(draft.acquisitionCosts.initialReservesKsh, overrideEstimated)) {
+    if (monthlyRent > 0) {
+      draft.acquisitionCosts.initialReservesKsh = estimatedInput(
+        (monthlyRent * 3).toFixed(2),
+        "Three months of gross rent for provisional reserves",
+      );
+    }
+  }
+  if (shouldSeed(draft.loanTerms.maximumLtv, overrideEstimated)) {
+    draft.loanTerms.maximumLtv = estimatedInput(
+      "0.70",
+      "MaliScope policy default",
+    );
+  }
+  if (shouldSeed(draft.loanTerms.annualInterestRate, overrideEstimated)) {
+    draft.loanTerms.annualInterestRate = estimatedInput(
+      "0.145",
+      "MaliScope policy default",
+    );
+  }
+  if (shouldSeed(draft.loanTerms.amortizationYears, overrideEstimated)) {
+    draft.loanTerms.amortizationYears = estimatedInput(
+      15,
+      "MaliScope policy default",
+    );
+  }
+  if (shouldSeed(draft.assumptions.baseOccupancy, overrideEstimated)) {
+    draft.assumptions.baseOccupancy = estimatedInput(
+      profile.suggested.baseOccupancy,
+      label,
+    );
+  }
+  if (shouldSeed(draft.assumptions.collectionLoss, overrideEstimated)) {
+    draft.assumptions.collectionLoss = estimatedInput(
+      profile.suggested.collectionLoss,
+      label,
+    );
+  }
+  if (shouldSeed(draft.assumptions.otherIncomeAnnualKsh, overrideEstimated)) {
+    draft.assumptions.otherIncomeAnnualKsh = estimatedInput(
+      "0",
+      "No other income assumed by default",
+    );
+  }
+
+  return draft;
+}
+
+interface SensitivityInputs {
+  rentMultiplier: number;
+  occupancyOverride: number;
+  costMultiplier: number;
+}
+
+function applySensitivity(
+  listing: PropertyListing,
+  { rentMultiplier, occupancyOverride, costMultiplier }: SensitivityInputs,
+): PropertyListing {
+  const draft = structuredClone(listing);
+
+  if (rentMultiplier !== 1) {
+    draft.unitMix = draft.unitMix.map((unit) => {
+      if (!unit.monthlyRentKsh.value) return unit;
+      const original = Number(unit.monthlyRentKsh.value);
+      if (!Number.isFinite(original)) return unit;
+      return {
+        ...unit,
+        monthlyRentKsh: {
+          ...unit.monthlyRentKsh,
+          value: (original * rentMultiplier).toFixed(2),
+          status: "estimated",
+          note: `Sensitivity: rent \u00d7 ${rentMultiplier.toFixed(2)}`,
+        },
+      };
+    });
+  }
+
+  draft.assumptions.baseOccupancy = {
+    ...draft.assumptions.baseOccupancy,
+    value: occupancyOverride.toFixed(2),
+    status: "estimated",
+    note: `Sensitivity: base occupancy override ${(occupancyOverride * 100).toFixed(0)}%`,
+  };
+
+  if (
+    costMultiplier !== 1 &&
+    draft.operatingCosts.annualFixedKsh.value
+  ) {
+    const original = Number(draft.operatingCosts.annualFixedKsh.value);
+    if (Number.isFinite(original)) {
+      draft.operatingCosts.annualFixedKsh = {
+        ...draft.operatingCosts.annualFixedKsh,
+        value: (original * costMultiplier).toFixed(2),
+        status: "estimated",
+        note: `Sensitivity: fixed opex \u00d7 ${costMultiplier.toFixed(2)}`,
+      };
+    }
+  }
+
+  return draft;
+}
+
 export function UnderwritingDashboard() {
   const [listing, setListing] = useState<PropertyListing>(() =>
     structuredClone(seededListing),
@@ -98,8 +297,52 @@ export function UnderwritingDashboard() {
   const [importText, setImportText] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [rentDelta, setRentDelta] = useState(0);
+  const [occupancyOverride, setOccupancyOverride] = useState<number | null>(
+    null,
+  );
+  const [costInflation, setCostInflation] = useState(0);
   const analysis = useMemo(() => analyzeListing(listing), [listing]);
   const profile = countyProfiles[listing.county];
+
+  const baseOccupancyValue = Number(listing.assumptions.baseOccupancy.value);
+  const effectiveOccupancy =
+    occupancyOverride ??
+    (Number.isFinite(baseOccupancyValue) && baseOccupancyValue > 0
+      ? Math.min(1, Math.max(0.75, baseOccupancyValue))
+      : 0.9);
+  const sensitivityInputs: SensitivityInputs = {
+    rentMultiplier: 1 + rentDelta,
+    occupancyOverride: effectiveOccupancy,
+    costMultiplier: 1 + costInflation,
+  };
+  const sensitivityActive =
+    rentDelta !== 0 || costInflation !== 0 || occupancyOverride !== null;
+  const sensitivityListing = useMemo(
+    () => applySensitivity(listing, sensitivityInputs),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      listing,
+      sensitivityInputs.rentMultiplier,
+      sensitivityInputs.occupancyOverride,
+      sensitivityInputs.costMultiplier,
+    ],
+  );
+  const sensitivityAnalysis = useMemo(
+    () => analyzeListing(sensitivityListing),
+    [sensitivityListing],
+  );
+  const sensitivityBaseScenario = sensitivityAnalysis.scenarios.find(
+    (scenario) => scenario.scenarioId === "base",
+  );
+  const baseScenario = analysis.scenarios.find(
+    (scenario) => scenario.scenarioId === "base",
+  );
+  const resetSensitivity = () => {
+    setRentDelta(0);
+    setOccupancyOverride(null);
+    setCostInflation(0);
+  };
 
   useEffect(() => {
     const listingId = new URLSearchParams(window.location.search).get(
@@ -117,8 +360,10 @@ export function UnderwritingDashboard() {
           );
         }
         if (active) {
-          setListing(body);
-          setNotice("Discovered listing loaded. Complete the missing facts.");
+          setListing(seedWithCountyProfile(body));
+          setNotice(
+            "Discovered listing loaded. County-profile defaults applied where source facts were missing \u2014 review the estimated fields.",
+          );
         }
       })
       .catch((error: unknown) => {
@@ -156,7 +401,7 @@ export function UnderwritingDashboard() {
         setNotice(`Import rejected: ${parsed.error.issues[0]?.message}`);
         return;
       }
-      setListing(parsed.data);
+      setListing(seedWithCountyProfile(parsed.data));
       setNotice("Listing imported and analyzed locally.");
     } catch {
       setNotice("Import rejected: enter valid MaliScope listing JSON.");
@@ -167,21 +412,11 @@ export function UnderwritingDashboard() {
     draft: SaleListingImportDraft,
     source: SourceRegistryEntry,
   ) => {
-    if (!draft.county.value) {
-      throw new Error(
-        "The county could not be identified. Create a manual listing so it can be selected explicitly.",
-      );
-    }
-    if (draft.county.status !== "reported") {
-      throw new Error(
-        `The parser inferred ${draft.county.value} County. Create a manual listing to confirm the county explicitly before analysis.`,
-      );
-    }
     const imported = blankListing();
     imported.id = `${draft.sourceId}-${draft.externalId ?? Date.now()}`;
     imported.title = draft.title.value ?? "Imported sale listing";
     imported.address = draft.address.value ?? "";
-    imported.county = draft.county.value;
+    imported.county = resolveCounty(draft.county.value);
     imported.submarket = draft.submarket.value ?? "";
     imported.askingPriceKsh = draft.askingPriceKsh.value
       ? {
@@ -222,7 +457,7 @@ export function UnderwritingDashboard() {
     };
     imported.createdAt = draft.capturedAt;
     imported.updatedAt = draft.capturedAt;
-    setListing(imported);
+    setListing(seedWithCountyProfile(imported));
   };
 
   const importFromWebsite = async () => {
@@ -375,13 +610,18 @@ export function UnderwritingDashboard() {
               <span className="field-label">County</span>
               <select
                 value={listing.county}
-                onChange={(event) =>
-                  update(
-                    (draft) =>
-                      void (draft.county = event.target
-                        .value as PropertyListing["county"]),
-                  )
-                }
+                onChange={(event) => {
+                  const nextCounty = event.target
+                    .value as PropertyListing["county"];
+                  setListing((current) => {
+                    const next = seedWithCountyProfile(
+                      { ...current, county: nextCounty },
+                      { overrideEstimated: true },
+                    );
+                    next.updatedAt = new Date().toISOString();
+                    return next;
+                  });
+                }}
               >
                 {counties.map((county) => (
                   <option key={county}>{county}</option>
@@ -777,6 +1017,154 @@ export function UnderwritingDashboard() {
         </section>
 
         <aside className="results-panel">
+          <div className="sensitivity-strip">
+            <div className="sensitivity-heading">
+              <div>
+                <span className="eyebrow">Sensitivity</span>
+                <strong>Move the sliders to stress-test the analysis</strong>
+              </div>
+              <button
+                className="button button-quiet"
+                type="button"
+                onClick={resetSensitivity}
+                disabled={!sensitivityActive}
+              >
+                Reset
+              </button>
+            </div>
+            <div className="sensitivity-sliders">
+              <label>
+                <span className="field-label">
+                  Rent{" "}
+                  <b>
+                    {rentDelta >= 0 ? "+" : ""}
+                    {Math.round(rentDelta * 100)}%
+                  </b>
+                </span>
+                <input
+                  type="range"
+                  min={-0.2}
+                  max={0.2}
+                  step={0.01}
+                  value={rentDelta}
+                  onChange={(event) =>
+                    setRentDelta(Number(event.target.value))
+                  }
+                />
+              </label>
+              <label>
+                <span className="field-label">
+                  Base occupancy <b>{Math.round(effectiveOccupancy * 100)}%</b>
+                </span>
+                <input
+                  type="range"
+                  min={0.75}
+                  max={1}
+                  step={0.01}
+                  value={effectiveOccupancy}
+                  onChange={(event) =>
+                    setOccupancyOverride(Number(event.target.value))
+                  }
+                />
+              </label>
+              <label>
+                <span className="field-label">
+                  Fixed opex{" "}
+                  <b>
+                    {costInflation >= 0 ? "+" : ""}
+                    {Math.round(costInflation * 100)}%
+                  </b>
+                </span>
+                <input
+                  type="range"
+                  min={0}
+                  max={0.5}
+                  step={0.05}
+                  value={costInflation}
+                  onChange={(event) =>
+                    setCostInflation(Number(event.target.value))
+                  }
+                />
+              </label>
+            </div>
+            {analysis.scenarios.length > 0 ||
+            sensitivityAnalysis.scenarios.length > 0 ? (
+              <div className="sensitivity-metrics">
+                <div>
+                  <span>Recommendation</span>
+                  <strong>{sensitivityAnalysis.recommendationLabel}</strong>
+                  {sensitivityActive &&
+                  sensitivityAnalysis.recommendation !==
+                    analysis.recommendation ? (
+                    <small>was {analysis.recommendationLabel}</small>
+                  ) : null}
+                </div>
+                <div>
+                  <span>MAO</span>
+                  <strong>
+                    {sensitivityAnalysis.maximumAllowableOfferKsh
+                      ? kes.format(
+                          Number(sensitivityAnalysis.maximumAllowableOfferKsh),
+                        )
+                      : "\u2014"}
+                  </strong>
+                  {sensitivityActive &&
+                  sensitivityAnalysis.maximumAllowableOfferKsh &&
+                  analysis.maximumAllowableOfferKsh ? (
+                    <small>
+                      {(() => {
+                        const base = Number(analysis.maximumAllowableOfferKsh);
+                        const next = Number(
+                          sensitivityAnalysis.maximumAllowableOfferKsh,
+                        );
+                        if (!Number.isFinite(base) || base === 0) return null;
+                        const delta = ((next - base) / base) * 100;
+                        const arrow =
+                          delta > 0 ? "\u2191" : delta < 0 ? "\u2193" : "";
+                        return `${arrow} ${Math.abs(delta).toFixed(1)}% vs base`;
+                      })()}
+                    </small>
+                  ) : null}
+                </div>
+                <div>
+                  <span>Base DSCR</span>
+                  <strong>
+                    {sensitivityBaseScenario?.dscr
+                      ? `${Number(sensitivityBaseScenario.dscr).toFixed(2)}\u00d7`
+                      : "\u2014"}
+                  </strong>
+                  {sensitivityActive && baseScenario?.dscr ? (
+                    <small>
+                      {`was ${Number(baseScenario.dscr).toFixed(2)}\u00d7`}
+                    </small>
+                  ) : null}
+                </div>
+                <div>
+                  <span>Base cash-on-cash</span>
+                  <strong>
+                    {sensitivityBaseScenario?.cashOnCashReturn
+                      ? `${(
+                          Number(sensitivityBaseScenario.cashOnCashReturn) * 100
+                        ).toFixed(1)}%`
+                      : "\u2014"}
+                  </strong>
+                  {sensitivityActive && baseScenario?.cashOnCashReturn ? (
+                    <small>
+                      was{" "}
+                      {(Number(baseScenario.cashOnCashReturn) * 100).toFixed(1)}
+                      %
+                    </small>
+                  ) : null}
+                </div>
+              </div>
+            ) : (
+              <p className="sensitivity-empty">
+                Fill in the required financial inputs (asking price, at least
+                one unit rent, operating costs, and loan terms) to activate the
+                stress tiles.
+              </p>
+            )}
+          </div>
           <div
             className={`recommendation recommendation-${analysis.recommendation.toLowerCase()}`}
           >

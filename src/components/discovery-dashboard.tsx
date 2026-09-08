@@ -53,10 +53,14 @@ const kes = new Intl.NumberFormat("en-KE", {
 const unavailableScreen: DiscoveryPreScreen = {
   status: "NEEDS_DATA",
   label: "NEEDS DATA",
-  reason: "The provisional viability screen is unavailable.",
+  reason: "The loan-service screen is unavailable.",
   reportedMonthlyGrossRentKsh: null,
+  reportedOccupancy: null,
   requiredMonthlyGrossRentKsh: null,
   maximumAllowableOfferKsh: null,
+  monthlyDebtServiceKsh: null,
+  monthlyInterestKsh: null,
+  debtServiceCoverageRatio: null,
   assumptionsLabel: "Open underwriting to enter and verify missing facts.",
 };
 
@@ -283,13 +287,16 @@ export function DiscoveryDashboard() {
   const metrics = useMemo(
     () => ({
       total: visibleRecords.length,
-      viable: visibleRecords.filter(
-        (record) => record.preScreen?.status === "VIABLE",
+      promising: visibleRecords.filter(
+        (record) => record.preScreen?.status === "PROMISING",
       ).length,
-      negotiate: visibleRecords.filter(
+      worthALook: visibleRecords.filter(
+        (record) => record.preScreen?.status === "WORTH_A_LOOK",
+      ).length,
+      requiresSubsidy: visibleRecords.filter(
         (record) =>
-          record.preScreen?.status === "NEGOTIATE" ||
-          record.preScreen?.status === "NOT_VIABLE",
+          record.preScreen?.status === "INTEREST_ONLY" ||
+          record.preScreen?.status === "UNDERWATER",
       ).length,
       needsData: visibleRecords.filter(
         (record) => record.preScreen?.status === "NEEDS_DATA",
@@ -349,12 +356,16 @@ export function DiscoveryDashboard() {
             <strong>{metrics.total}</strong>
           </div>
           <div>
-            <span>Provisionally viable</span>
-            <strong>{metrics.viable}</strong>
+            <span>Promising</span>
+            <strong>{metrics.promising}</strong>
           </div>
           <div>
-            <span>Negotiate / not viable</span>
-            <strong>{metrics.negotiate}</strong>
+            <span>Worth a look</span>
+            <strong>{metrics.worthALook}</strong>
+          </div>
+          <div>
+            <span>Requires subsidy</span>
+            <strong>{metrics.requiresSubsidy}</strong>
           </div>
           <div>
             <span>Needs data</span>
@@ -529,10 +540,10 @@ export function DiscoveryDashboard() {
                       : "Price not reported"}
                   </strong>
                   <div
-                    className={`pre-screen pre-screen-${screening.status.toLowerCase().replace("_", "-")}`}
+                    className={`pre-screen pre-screen-${screening.status.toLowerCase().replaceAll("_", "-")}`}
                   >
                     <div>
-                      <span>Policy pre-screen</span>
+                      <span>Loan-service screen</span>
                       <strong>{screening.label}</strong>
                     </div>
                     <p>{screening.reason}</p>
@@ -547,9 +558,37 @@ export function DiscoveryDashboard() {
                         </b>
                       </span>
                     ) : null}
+                    {screening.reportedOccupancy ? (
+                      <span>
+                        Reported occupancy:{" "}
+                        <b>
+                          {Math.round(
+                            Number(screening.reportedOccupancy) * 100,
+                          )}
+                          %
+                        </b>
+                      </span>
+                    ) : null}
+                    {screening.monthlyDebtServiceKsh ? (
+                      <span>
+                        Debt payment @ 70% LTV:{" "}
+                        <b>
+                          {kes.format(
+                            Number(screening.monthlyDebtServiceKsh),
+                          )}
+                          /month
+                        </b>
+                      </span>
+                    ) : null}
+                    {screening.debtServiceCoverageRatio ? (
+                      <span>
+                        DSCR (rent ÷ payment):{" "}
+                        <b>{Number(screening.debtServiceCoverageRatio).toFixed(2)}×</b>
+                      </span>
+                    ) : null}
                     {screening.requiredMonthlyGrossRentKsh ? (
                       <span>
-                        Minimum gross rent to pass:{" "}
+                        Rent needed for PROMISING:{" "}
                         <b>
                           {kes.format(
                             Number(screening.requiredMonthlyGrossRentKsh),
@@ -560,7 +599,7 @@ export function DiscoveryDashboard() {
                     ) : null}
                     {screening.maximumAllowableOfferKsh ? (
                       <span>
-                        Provisional MAO:{" "}
+                        Price for PROMISING at reported rent:{" "}
                         <b>
                           {kes.format(
                             Number(screening.maximumAllowableOfferKsh),
@@ -569,8 +608,8 @@ export function DiscoveryDashboard() {
                       </span>
                     ) : null}
                     <small title={screening.assumptionsLabel}>
-                      Provisional assumptions — verify before relying on this
-                      result.
+                      Loan-service view only. Underwriting adds operating costs and
+                      returns.
                     </small>
                   </div>
                   <div className="listing-facts">
