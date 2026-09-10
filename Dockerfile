@@ -22,7 +22,8 @@ COPY . .
 # Next.js reads .env.production at build time for public NEXT_PUBLIC_* vars;
 # secrets stay in the runtime `.env` mounted via compose.
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN npm run build
+# `public/` is optional in Next.js — ensure it exists so the runtime COPY works
+RUN mkdir -p public && npm run build
 
 # ---------------------------------------------------------------------------
 # 3) runtime — small image with just the standalone server + public assets
