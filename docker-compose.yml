@@ -1,14 +1,57 @@
+# MaliScope production stack — Next.js app + Postgres.
+#
+# Bring up:   docker compose up -d --build      # auto-loads .env
+# Tail logs:  docker compose logs -f web
+# Migrate:    docker compose exec web npm run db:migrate
+#
+# Public ingress: TLS terminates in the shared Caddy proxy stack (~/proxy).
+# Caddy reaches this stack via the external `web` network by resolving the
+# container name `maliscope-web-1`. Nothing here binds to a public host port.
+
+name: maliscope
+
 services:
   postgres:
     image: postgres:17-alpine
+    restart: unless-stopped
     environment:
-      POSTGRES_DB: maliscope
-      POSTGRES_USER: maliscope
-      POSTGRES_PASSWORD: maliscope
-    ports:
-      - "5433:5432"
+      POSTGRES_USER: ${PGUSER:-maliscope}
+      POSTGRES_PASSWORD: ${PGPASSWORD:?PGPASSWORD must be set}
+      POSTGRES_DB: ${PGDATABASE:-maliscope}
     volumes:
       - maliscope-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PGUSER:-maliscope} -d ${PGDATABASE:-maliscope}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # For local dev, uncomment to expose Postgres on the host:
+    # ports:
+    #   - "127.0.0.1:5433:5432"
+
+  web:
+    build:
+      context: .
+    image: maliscope-web:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Compose the DATABASE_URL from the same vars that .env.example already sets.
+      # PGHOST is forced to the internal service name; PGPORT to Postgres default.
+      DATABASE_URL: postgresql://${PGUSER:-maliscope}:${PGPASSWORD}@postgres:5432/${PGDATABASE:-maliscope}
+      NODE_ENV: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - default
+      - web
 
 volumes:
   maliscope-postgres:
+
+networks:
+  default:
+  web:
+    external: true
