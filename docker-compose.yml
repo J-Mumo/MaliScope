@@ -2,7 +2,12 @@
 #
 # Bring up:   docker compose up -d --build      # auto-loads .env
 # Tail logs:  docker compose logs -f web
-# Migrate:    docker compose exec web npm run db:migrate
+#
+# One-shot admin tasks (migrations, discovery job) — the `web` runtime image is
+# Next.js standalone output and does NOT contain src/, drizzle-kit, or tsx.
+# Use the `jobs` profile, which builds from the Dockerfile's `build` stage:
+#   Migrate:  docker compose --profile jobs run --rm jobs npm run db:migrate
+#   Discover: docker compose --profile jobs run --rm jobs npm run job:discover
 #
 # Public ingress: TLS terminates in the shared Caddy proxy stack (~/proxy).
 # Caddy reaches this stack via the external `web` network by resolving the
@@ -47,6 +52,29 @@ services:
     networks:
       - default
       - web
+
+  # One-shot admin container: same source as `web`, but stops at the `build`
+  # stage of the Dockerfile so it still has src/, drizzle/, and devDependencies
+  # (tsx, drizzle-kit). Never started by `docker compose up` because of the
+  # `jobs` profile. Invoke explicitly, e.g.:
+  #   docker compose --profile jobs run --rm jobs npm run job:discover
+  jobs:
+    profiles: ["jobs"]
+    build:
+      context: .
+      target: build
+    image: maliscope-jobs:latest
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://${PGUSER:-maliscope}:${PGPASSWORD}@postgres:5432/${PGDATABASE:-maliscope}
+      NODE_ENV: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - default
+    # No CMD — always invoke via `docker compose run --rm jobs <cmd>`.
 
 volumes:
   maliscope-postgres:
