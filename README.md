@@ -155,6 +155,30 @@ deployments that expose it publicly should front it with an auth proxy or
 gate `POST` on a shared secret before exposing the URL beyond a trusted
 operator.
 
+### Running discovery from an operator laptop against production
+
+Some source hosts (Jiji, PropertyPro, BuyRentKenya) front their catalogue with
+Cloudflare and 403 requests from the Hetzner IP range while returning 200 to
+residential IPs. Rather than solving JS challenges or renting residential
+proxies, an operator can run the same discovery job from their laptop and
+persist drafts directly into the production database over an SSH tunnel:
+
+```powershell
+# One-time on the VM (already committed in docker-compose.yml):
+#   Postgres binds 127.0.0.1:5433 on the VM loopback only.
+#   `git pull && docker compose up -d postgres` picks that up.
+
+npm run job:discover:remote
+```
+
+The helper at [scripts/run-remote-discovery.ps1](scripts/run-remote-discovery.ps1)
+opens `ssh -L 55432:127.0.0.1:5433 stockup@<vm>`, sets `DATABASE_URL` to point
+at the tunnel, runs `npm run job:discover`, and tears the tunnel down (also on
+Ctrl+C). Drafts, `job_runs` audit rows, and the Jiji pagination cursor land in
+the same production tables the deployed app reads. Nothing about which sources
+are attempted changes — this is only about which IP the outbound HTTPS
+originates from.
+
 ## Tracked inputs and confidence
 
 Every financial fact and due-diligence answer is one of:

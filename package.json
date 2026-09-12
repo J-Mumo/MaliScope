@@ -18,7 +18,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "job:sample": "tsx src/jobs/run-sample.ts",
-    "job:discover": "tsx src/jobs/run-discovery.ts"
+    "job:discover": "tsx src/jobs/run-discovery.ts",
+    "job:discover:remote": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-remote-discovery.ps1"
   },
   "dependencies": {
     "cheerio": "^1.2.0",

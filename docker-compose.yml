@@ -30,9 +30,13 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    # For local dev, uncomment to expose Postgres on the host:
-    # ports:
-    #   - "127.0.0.1:5433:5432"
+    # Publish Postgres on the VM's loopback only so `ssh -L` from a trusted
+    # operator laptop can reach it (used by scripts/run-remote-discovery.ps1
+    # when a source WAF blocks the VM IP). 127.0.0.1 binding means Docker
+    # never asks the kernel to expose the port on the public interface, so
+    # the DB stays firewalled to loopback even if UFW is misconfigured.
+    ports:
+      - "127.0.0.1:5433:5432"
 
   web:
     build:
