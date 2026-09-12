@@ -72,15 +72,6 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  if (process.env.NODE_ENV === "production") {
-    return NextResponse.json(
-      {
-        error:
-          "Interactive discovery is disabled in production. Run the scheduled discovery job.",
-      },
-      { status: 403 },
-    );
-  }
   let body: unknown;
   try {
     body = await request.json();

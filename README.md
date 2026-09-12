@@ -149,8 +149,11 @@ npm run job:discover
 This command requires `DATABASE_URL`, persists source drafts and job results,
 and is the production scheduler entry point. On `/discovery`, leave the source
 filter at **All approved sources** to run every connector, or choose one source
-to run only that connector. Interactive discovery is disabled when
-`NODE_ENV=production` because this MVP has no authentication.
+to run only that connector. The interactive **Run** button posts to
+`/api/discovery` in every environment; the endpoint is unauthenticated, so
+deployments that expose it publicly should front it with an auth proxy or
+gate `POST` on a shared secret before exposing the URL beyond a trusted
+operator.
 
 ## Tracked inputs and confidence
 
