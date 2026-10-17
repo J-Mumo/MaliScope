@@ -6,6 +6,7 @@ import {
   serial,
   text,
   timestamp,
+  unique,
 } from "drizzle-orm/pg-core";
 import type { AnalysisResult, PropertyListing } from "@/domain";
 import type { SaleListingImportDraft } from "@/sources/import-types";
@@ -85,3 +86,28 @@ export const discoverySourceCursors = pgTable("discovery_source_cursors", {
   currentPage: integer("current_page").notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
 });
+
+export const discoveryNotifications = pgTable(
+  "discovery_notifications",
+  {
+    id: serial("id").primaryKey(),
+    discoveryId: text("discovery_id")
+      .notNull()
+      .references(() => discoveredListings.id, { onDelete: "cascade" }),
+    contentHash: text("content_hash").notNull(),
+    status: text("status").notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("discovery_notifications_status_idx").on(table.status, table.createdAt),
+    index("discovery_notifications_listing_idx").on(table.discoveryId),
+    unique("discovery_notifications_version_unique").on(
+      table.discoveryId,
+      table.contentHash,
+    ),
+  ],
+);

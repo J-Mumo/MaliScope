@@ -25,6 +25,7 @@ class MemoryDiscoveryRepository implements DiscoveryRepository {
 
   async upsertDraft(draft: SaleListingImportDraft) {
     this.drafts.push(draft);
+    return { changed: true };
   }
 
   async list(): Promise<DiscoveryRecord[]> {

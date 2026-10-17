@@ -146,6 +146,30 @@ Run bounded discovery for every approved source:
 npm run job:discover
 ```
 
+### Discovery email alerts
+
+The discovery job queues an email alert when a new or changed listing meets the
+conservative high-quality policy: the source reports the asking price, county,
+unit count, and gross monthly rent, and the provisional loan-service screen is
+`PROMISING`. Alerts are deduplicated by source listing and content version, so
+re-running discovery does not resend an unchanged property. Failed deliveries
+remain queued for retry on the next discovery run.
+
+Email delivery uses the Resend HTTP API. Set these server-only variables in
+`.env.local` or the production environment; never expose them as
+`NEXT_PUBLIC_*` variables:
+
+```text
+RESEND_API_KEY=re_...
+DISCOVERY_ALERT_EMAIL=you@example.com
+DISCOVERY_ALERT_FROM=MaliScope <alerts@your-verified-domain.example>
+```
+
+Without these variables, discovery still persists its results and safely leaves
+eligible alerts pending. The job output and `job_runs` audit record include
+notification counts. Configure a verified sender domain with Resend before
+using a production address.
+
 This command requires `DATABASE_URL`, persists source drafts and job results,
 and is the production scheduler entry point. On `/discovery`, leave the source
 filter at **All approved sources** to run every connector, or choose one source

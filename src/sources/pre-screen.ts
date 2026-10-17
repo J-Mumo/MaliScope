@@ -1,4 +1,5 @@
 import Decimal from "decimal.js";
+import type { DiscoveryRecord } from "./discovery-types";
 import type { SaleListingImportDraft } from "./import-types";
 
 export const discoveryPreScreenStatuses = [
@@ -255,4 +256,28 @@ export function preScreenDiscoveryDraft(
   }
   preScreenCache.set(cacheKey, result);
   return result;
+}
+
+export function isHighQualityDraft(
+  draft: SaleListingImportDraft,
+  status: DiscoveryRecord["status"] = "new",
+): boolean {
+  return (
+    status !== "delisted" &&
+    status !== "ignored" &&
+    Boolean(draft.title.value) &&
+    draft.sourceUrl.length > 0 &&
+    draft.askingPriceKsh.status === "reported" &&
+    Boolean(draft.askingPriceKsh.value) &&
+    draft.county.status === "reported" &&
+    Boolean(draft.county.value) &&
+    draft.unitHints.some(
+      (hint) => hint.count.status === "reported" && (hint.count.value ?? 0) > 0,
+    ) &&
+    preScreenDiscoveryDraft(draft).status === "PROMISING"
+  );
+}
+
+export function isHighQualityDiscovery(record: DiscoveryRecord): boolean {
+  return isHighQualityDraft(record.draft, record.status);
 }

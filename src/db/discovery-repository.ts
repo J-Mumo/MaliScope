@@ -7,17 +7,19 @@ import type {
   DiscoveryRecord,
   DiscoveryStatus,
 } from "@/sources/discovery-types";
+import { isHighQualityDraft } from "@/sources/pre-screen";
 import { getDatabase } from "./client";
 import {
   analyses,
   discoveredListings,
+  discoveryNotifications,
   discoverySourceCursors,
   listings,
 } from "./schema";
 
 export interface DiscoveryRepository {
   claimSourcePage(sourceId: string, pageCount: number): Promise<number>;
-  upsertDraft(draft: SaleListingImportDraft): Promise<void>;
+  upsertDraft(draft: SaleListingImportDraft): Promise<{ changed: boolean }>;
   list(filters?: DiscoveryFilters): Promise<DiscoveryRecord[]>;
   get(id: string): Promise<DiscoveryRecord | null>;
   setStatus(id: string, status: DiscoveryStatus): Promise<void>;
@@ -26,6 +28,12 @@ export interface DiscoveryRepository {
     options: { notSeenSince: Date; limit: number },
   ): Promise<DiscoveryRecord[]>;
   markDelisted(id: string): Promise<void>;
+}
+
+export interface PendingDiscoveryNotification {
+  id: number;
+  discoveryId: string;
+  contentHash: string;
 }
 
 export function discoveryRecordId(draft: SaleListingImportDraft): string {
@@ -69,12 +77,21 @@ export class PostgresDiscoveryRepository implements DiscoveryRepository {
     return cursor.page;
   }
 
-  async upsertDraft(draft: SaleListingImportDraft): Promise<void> {
+  async upsertDraft(draft: SaleListingImportDraft): Promise<{ changed: boolean }> {
     const seenAt = new Date(draft.capturedAt);
-    await getDatabase()
-      .insert(discoveredListings)
-      .values({
-        id: discoveryRecordId(draft),
+    const database = getDatabase();
+    return database.transaction(async (transaction) => {
+      const [existing] = await transaction
+        .select({ contentHash: discoveredListings.contentHash })
+        .from(discoveredListings)
+        .where(eq(discoveredListings.sourceUrl, draft.sourceUrl))
+        .limit(1);
+      const changed = !existing || existing.contentHash !== draft.extractedRecordSha256;
+      const id = discoveryRecordId(draft);
+      await transaction
+        .insert(discoveredListings)
+        .values({
+        id,
         sourceId: draft.sourceId,
         sourceUrl: draft.sourceUrl,
         externalId: draft.externalId,
@@ -118,7 +135,25 @@ export class PostgresDiscoveryRepository implements DiscoveryRepository {
           END`,
           lastSeenAt: seenAt,
         },
-      });
+        });
+      if (changed && isHighQualityDraft(draft)) {
+        await transaction
+          .insert(discoveryNotifications)
+          .values({
+            discoveryId: id,
+            contentHash: draft.extractedRecordSha256,
+            createdAt: seenAt,
+            updatedAt: seenAt,
+          })
+          .onConflictDoNothing({
+            target: [
+              discoveryNotifications.discoveryId,
+              discoveryNotifications.contentHash,
+            ],
+          });
+      }
+      return { changed };
+    });
   }
 
   async list(filters: DiscoveryFilters = {}): Promise<DiscoveryRecord[]> {
